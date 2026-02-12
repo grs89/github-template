@@ -95,7 +95,7 @@ jobs:
           scan-type: 'fs'
           scan-ref: '.'
           format: 'template'
-          template: '@.github/trivy/html.tpl'
+          template: '@${{ github.workspace }}/.github/trivy/html.tpl'
           output: 'trivy-report.html'
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
 
@@ -181,7 +181,7 @@ jobs:
           scan-type: 'image'
           image-ref: ${{ env.DOCKER_IMAGE }}:${{ steps.meta.outputs.version || 'latest' }}
           format: 'template'
-          template: '@.github/trivy/html.tpl'
+          template: '@${{ github.workspace }}/.github/trivy/html.tpl'
           output: 'trivy-image-report.html'
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
 
