@@ -43,7 +43,7 @@ runs:
         scan-ref: ${{ inputs.scan-type == 'fs' && '.' || '' }}
         image-ref: ${{ inputs.scan-type == 'image' && inputs.image-ref || '' }}
         format: 'template'
-        template: 'html.tpl'
+        template: '@html.tpl'
         output: '${{ inputs.output-prefix }}-report.html'
         severity: 'CRITICAL,HIGH'
 
