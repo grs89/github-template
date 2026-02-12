@@ -1,13 +1,22 @@
 name: Build and Push Docker Image
 
 on:
+
+  workflow_call:
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
+
+
   push:
     tags:
       - 'v*.*.*'
   workflow_dispatch:
 
 env:
-  DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/centralizegg
+  DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPO }}
   PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
