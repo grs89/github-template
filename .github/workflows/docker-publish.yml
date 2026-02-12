@@ -77,11 +77,17 @@ jobs:
       security-events: write
     
     steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Checkout Infra Actions
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/github-template
+          path: .github-template
+
       - name: Run Trivy Scan
-        uses: ./.github/trivy
+        uses: ./.github-template/.github/trivy
         with:
           scan-type: 'fs'
           output-prefix: 'trivy-fs'
@@ -95,7 +101,7 @@ jobs:
       security-events: write
     
     steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Extract metadata for image reference
@@ -106,8 +112,14 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
 
+      - name: Checkout Infra Actions
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/github-template
+          path: .github-template
+
       - name: Run Trivy Scan
-        uses: ./.github/trivy
+        uses: ./.github-template/.github/trivy
         with:
           scan-type: 'image'
           image-ref: ${{ env.DOCKER_IMAGE }}:${{ steps.meta.outputs.version || 'latest' }}
