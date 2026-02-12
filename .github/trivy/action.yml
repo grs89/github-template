@@ -1,0 +1,170 @@
+name: 'Trivy Scan with PDF Report'
+description: 'Runs Trivy scan and generates a PDF report using Playwright'
+inputs:
+  scan-type:
+    description: 'Type of scan (fs or image)'
+    required: true
+    default: 'fs'
+  image-ref:
+    description: 'Image reference (required for image scan)'
+    required: false
+  output-prefix:
+    description: 'Prefix for output files (e.g. trivy-fs or trivy-image)'
+    required: true
+    default: 'trivy-report'
+  artifact-name:
+    description: 'Name of the artifact to upload'
+    required: true
+    default: 'trivy-reports'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Security Tools
+      shell: bash
+      run: |
+        sudo apt-get update
+        curl -sLO https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl
+
+    - name: Install Playwright
+      shell: bash
+      run: |
+        if [ ! -d "node_modules/playwright" ]; then
+          npm init -y
+          npm install playwright
+          npx playwright install chromium
+        fi
+
+    - name: Run Trivy vulnerability scanner (HTML)
+      uses: aquasecurity/trivy-action@master
+      continue-on-error: true
+      with:
+        scan-type: ${{ inputs.scan-type }}
+        scan-ref: ${{ inputs.scan-type == 'fs' && '.' || '' }}
+        image-ref: ${{ inputs.scan-type == 'image' && inputs.image-ref || '' }}
+        format: 'template'
+        template: 'html.tpl'
+        output: '${{ inputs.output-prefix }}-report.html'
+        severity: 'CRITICAL,HIGH'
+
+    - name: Run Trivy vulnerability scanner (JSON)
+      uses: aquasecurity/trivy-action@master
+      continue-on-error: true
+      with:
+        scan-type: ${{ inputs.scan-type }}
+        scan-ref: ${{ inputs.scan-type == 'fs' && '.' || '' }}
+        image-ref: ${{ inputs.scan-type == 'image' && inputs.image-ref || '' }}
+        format: 'json'
+        output: '${{ inputs.output-prefix }}-report.json'
+        severity: 'CRITICAL,HIGH'
+
+    - name: Convert Report to PDF
+      if: always()
+      shell: bash
+      run: |
+        cat <<'EOF' > render_${{ inputs.output-prefix }}.js
+        const { chromium } = require('playwright');
+        const fs = require('fs');
+
+        async function parseTrivy(file) {
+          if (!fs.existsSync(file)) return { counts: { CRITICAL: 0, HIGH: 0 }, findings: [] };
+          try {
+            const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+            let counts = { CRITICAL: 0, HIGH: 0 };
+            let findings = [];
+            const results = data.Results || [];
+            results.forEach(r => {
+              (r.Vulnerabilities || []).forEach(v => {
+                const sev = v.Severity.toUpperCase();
+                if (counts[sev] !== undefined) counts[sev]++;
+                findings.push({
+                  id: v.VulnerabilityID || 'N/A',
+                  pkg: v.PkgName || 'N/A',
+                  severity: sev,
+                  title: v.Title || 'No title'
+                });
+              });
+            });
+            return { counts, findings };
+          } catch (e) { return { counts: { CRITICAL: 0, HIGH: 0 }, findings: [] }; }
+        }
+
+        (async () => {
+          const prefix = '${{ inputs.output-prefix }}';
+          const jsonFile = `${prefix}-report.json`;
+          const htmlFile = `${prefix}-report.html`;
+          const results = await parseTrivy(jsonFile);
+          const severityPriority = { 'CRITICAL': 0, 'HIGH': 1 };
+          
+          let title = prefix.includes('image') ? 'Container Image' : 'Filesystem';
+          
+          let html = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="UTF-8">
+            <style>
+              body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 40px; color: #333; background-color: #f9f9f9; }
+              h1 { color: #2c3e50; text-align: center; margin-bottom: 30px; border-bottom: 2px solid #e74c3c; padding-bottom: 15px; }
+              .dashboard { display: flex; justify-content: center; gap: 20px; margin-bottom: 40px; }
+              .card { background: white; border-radius: 12px; padding: 25px; width: 220px; box-shadow: 0 8px 16px rgba(0,0,0,0.1); border: 1px solid #eee; text-align: center; }
+              .card h2 { margin: 0; font-size: 1.2em; color: #7f8c8d; }
+              .card .val { font-size: 2.5em; font-weight: bold; margin: 10px 0; }
+              .CRITICAL { color: #c0392b; }
+              .HIGH { color: #e67e22; }
+              .summary-table { width: 100%; border-collapse: collapse; margin-top: 20px; background: white; box-shadow: 0 4px 8px rgba(0,0,0,0.05); }
+              .summary-table th, .summary-table td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; font-size: 0.9em; }
+              .summary-table th { background-color: #34495e; color: white; }
+            </style>
+          </head>
+          <body>
+            <h1>🛡️ ${title} Security Scan Summary</h1>
+            <div class="dashboard">
+              <div class="card"><h2>Critical</h2><div class="val CRITICAL">${results.counts.CRITICAL}</div></div>
+              <div class="card"><h2>High</h2><div class="val HIGH">${results.counts.HIGH}</div></div>
+            </div>
+            <h2>Detailed Vulnerabilities (Sorted by Severity)</h2>
+            <table class="summary-table">
+              <thead>
+                <tr>
+                  <th style="width: 20%;">ID</th>
+                  <th style="width: 20%;">Package</th>
+                  <th style="width: 15%;">Severity</th>
+                  <th>Title</th>
+                </tr>
+              </thead>
+              <tbody>
+          `;
+
+          results.findings.sort((a, b) => severityPriority[a.severity] - severityPriority[b.severity]).forEach(f => {
+            html += `<tr><td>${f.id}</td><td>${f.pkg}</td><td><span class="${f.severity}">${f.severity}</span></td><td>${f.title}</td></tr>`;
+          });
+
+          html += `</tbody></table><div style="text-align: center; margin-top: 30px; color: #95a5a6; font-style: italic;">Generated on ${new Date().toUTCString()}</div></body></html>`;
+
+          const summaryHtml = `summary-${prefix}.html`;
+          fs.writeFileSync(summaryHtml, html);
+          
+          const browser = await chromium.launch();
+          const page = await browser.newPage();
+          
+          // Convert both the summary and the detailed report
+          for (const f of [summaryHtml, htmlFile]) {
+            if (!fs.existsSync(f)) continue;
+            await page.goto('file://' + process.cwd() + '/' + f);
+            await page.waitForTimeout(2000);
+            const pdfName = f.replace('.html', '.pdf');
+            await page.pdf({ path: pdfName, format: 'A4', printBackground: true });
+          }
+          await browser.close();
+        })();
+        EOF
+
+        node render_${{ inputs.output-prefix }}.js
+
+    - name: Upload Trivy Reports
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: '*.pdf'
