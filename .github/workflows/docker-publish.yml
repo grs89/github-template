@@ -80,107 +80,72 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run Trivy filesystem scan
+      - name: Run Trivy vulnerability scanner (JSON)
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'fs'
           scan-ref: '.'
           format: 'json'
-          output: 'trivy-code-results.json'
+          output: 'trivy-results.json'
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
-          exit-code: '0'
 
-      - name: Install dependencies for PDF generation
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-latex-extra
+      - name: Run Trivy vulnerability scanner (HTML)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'template'
+          template: '@.github/trivy/html.tpl'
+          output: 'trivy-report.html'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
 
-      - name: Convert Trivy results to sorted Markdown
+      - name: Generate GitHub Summary
         run: |
-          cat << 'EOF' > convert_trivy.py
+          cat << 'EOF' > generate_summary.py
           import json
-          import sys
-          from collections import defaultdict
+          import os
 
-          with open('trivy-code-results.json', 'r') as f:
+          with open('trivy-results.json', 'r') as f:
               data = json.load(f)
 
-          # Severity order (highest to lowest)
-          severity_order = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'UNKNOWN': 4}
-
-          # Group vulnerabilities by severity
-          vulns_by_severity = defaultdict(list)
+          summary_file = os.environ.get('GITHUB_STEP_SUMMARY')
           
-          if 'Results' in data:
-              for result in data['Results']:
-                  if 'Vulnerabilities' in result and result['Vulnerabilities']:
-                      for vuln in result['Vulnerabilities']:
-                          severity = vuln.get('Severity', 'UNKNOWN')
-                          vulns_by_severity[severity].append({
-                              'target': result.get('Target', 'Unknown'),
-                              'vuln': vuln
-                          })
-
-          # Generate Markdown report
-          print("# Trivy Code Security Scan Report\n")
-          print(f"**Scan Date:** {data.get('CreatedAt', 'Unknown')}\n")
-          print("---\n")
-
-          total_count = sum(len(v) for v in vulns_by_severity.values())
-          print(f"## Summary\n")
-          print(f"**Total Vulnerabilities Found:** {total_count}\n")
-          for severity in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN']:
-              count = len(vulns_by_severity.get(severity, []))
-              if count > 0:
-                  print(f"- **{severity}:** {count}")
-          print("\n---\n")
-
-          # Print vulnerabilities sorted by severity
-          for severity in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN']:
-              vulns = vulns_by_severity.get(severity, [])
-              if not vulns:
-                  continue
+          with open(summary_file, 'a') as f:
+              f.write("# Trivy Security Scan Summary\n\n")
               
-              print(f"## {severity} Severity ({len(vulns)} issues)\n")
+              total_vulns = 0
+              severities = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0, 'UNKNOWN': 0}
               
-              for item in vulns:
-                  vuln = item['vuln']
-                  target = item['target']
-                  vuln_id = vuln.get('VulnerabilityID', 'N/A')
-                  pkg_name = vuln.get('PkgName', 'N/A')
-                  installed_ver = vuln.get('InstalledVersion', 'N/A')
-                  fixed_ver = vuln.get('FixedVersion', 'N/A')
-                  title = vuln.get('Title', 'N/A')
-                  
-                  print(f"### {vuln_id}: {pkg_name}\n")
-                  print(f"- **Target:** {target}")
-                  print(f"- **Package:** {pkg_name}")
-                  print(f"- **Installed Version:** {installed_ver}")
-                  print(f"- **Fixed Version:** {fixed_ver if fixed_ver else 'Not available'}")
-                  print(f"- **Title:** {title}")
-                  
-                  if vuln.get('Description'):
-                      print(f"- **Description:** {vuln['Description'][:200]}...")
-                  
-                  print("\n")
+              if 'Results' in data:
+                  for result in data['Results']:
+                      if 'Vulnerabilities' in result:
+                          for vuln in result['Vulnerabilities']:
+                              total_vulns += 1
+                              sev = vuln.get('Severity', 'UNKNOWN')
+                              if sev in severities:
+                                  severities[sev] += 1
+              
+              f.write(f"**Total Vulnerabilities:** {total_vulns}\n\n")
+              f.write("| Severity | Count |\n")
+              f.write("| :--- | :---: |\n")
+              for sev, count in severities.items():
+                  icon = ""
+                  if sev == 'CRITICAL': icon = "🔴"
+                  elif sev == 'HIGH': icon = "🟠"
+                  elif sev == 'MEDIUM': icon = "🟡"
+                  elif sev == 'LOW': icon = "🔵"
+                  f.write(f"| {icon} {sev} | {count} |\n")
+              
+              f.write("\n\nCheck the **Artifacts** for the detailed HTML report.")
           EOF
-          
-          python3 convert_trivy.py > trivy-code-report.md
+          python3 generate_summary.py
 
-      - name: Generate PDF report
-        run: |
-          pandoc trivy-code-report.md -o trivy-code-security-report.pdf \
-            --pdf-engine=pdflatex \
-            -V geometry:margin=1in \
-            -V linkcolor:blue \
-            -V fontsize=11pt
-
-      - name: Upload PDF report as artifact
+      - name: Upload HTML report
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-code-security-report
-          path: trivy-code-security-report.pdf
-          retention-days: 30
+          name: trivy-code-report
+          path: trivy-report.html
+          retention-days: 7
 
   trivy-image-scan:
     runs-on: ubuntu-latest
@@ -201,7 +166,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
 
-      - name: Run Trivy image scan
+      - name: Run Trivy image scanner (JSON)
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'image'
@@ -209,100 +174,62 @@ jobs:
           format: 'json'
           output: 'trivy-image-results.json'
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
-          exit-code: '0'
 
-      - name: Install dependencies for PDF generation
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pandoc texlive-latex-base texlive-fonts-recommended texlive-latex-extra
+      - name: Run Trivy image scanner (HTML)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: ${{ env.DOCKER_IMAGE }}:${{ steps.meta.outputs.version || 'latest' }}
+          format: 'template'
+          template: '@.github/trivy/html.tpl'
+          output: 'trivy-image-report.html'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
 
-      - name: Convert Trivy image results to sorted Markdown
+      - name: Generate GitHub Summary
         run: |
-          cat << 'EOF' > convert_trivy_image.py
+          cat << 'EOF' > generate_image_summary.py
           import json
-          import sys
-          from collections import defaultdict
+          import os
 
           with open('trivy-image-results.json', 'r') as f:
               data = json.load(f)
 
-          # Severity order (highest to lowest)
-          severity_order = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'UNKNOWN': 4}
-
-          # Group vulnerabilities by severity
-          vulns_by_severity = defaultdict(list)
+          summary_file = os.environ.get('GITHUB_STEP_SUMMARY')
           
-          if 'Results' in data:
-              for result in data['Results']:
-                  if 'Vulnerabilities' in result and result['Vulnerabilities']:
-                      for vuln in result['Vulnerabilities']:
-                          severity = vuln.get('Severity', 'UNKNOWN')
-                          vulns_by_severity[severity].append({
-                              'target': result.get('Target', 'Unknown'),
-                              'vuln': vuln
-                          })
-
-          # Generate Markdown report
-          print("# Trivy Container Image Security Scan Report\n")
-          print(f"**Scan Date:** {data.get('CreatedAt', 'Unknown')}\n")
-          print(f"**Image:** {data.get('ArtifactName', 'Unknown')}\n")
-          print("---\n")
-
-          total_count = sum(len(v) for v in vulns_by_severity.values())
-          print(f"## Summary\n")
-          print(f"**Total Vulnerabilities Found:** {total_count}\n")
-          for severity in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN']:
-              count = len(vulns_by_severity.get(severity, []))
-              if count > 0:
-                  print(f"- **{severity}:** {count}")
-          print("\n---\n")
-
-          # Print vulnerabilities sorted by severity
-          for severity in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN']:
-              vulns = vulns_by_severity.get(severity, [])
-              if not vulns:
-                  continue
+          with open(summary_file, 'a') as f:
+              f.write("# Trivy Container Image Security Scan Summary\n\n")
+              f.write(f"**Image:** {data.get('ArtifactName', 'Unknown')}\n\n")
               
-              print(f"## {severity} Severity ({len(vulns)} issues)\n")
+              total_vulns = 0
+              severities = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0, 'UNKNOWN': 0}
               
-              for item in vulns:
-                  vuln = item['vuln']
-                  target = item['target']
-                  vuln_id = vuln.get('VulnerabilityID', 'N/A')
-                  pkg_name = vuln.get('PkgName', 'N/A')
-                  installed_ver = vuln.get('InstalledVersion', 'N/A')
-                  fixed_ver = vuln.get('FixedVersion', 'N/A')
-                  title = vuln.get('Title', 'N/A')
-                  
-                  print(f"### {vuln_id}: {pkg_name}\n")
-                  print(f"- **Target:** {target}")
-                  print(f"- **Package:** {pkg_name}")
-                  print(f"- **Installed Version:** {installed_ver}")
-                  print(f"- **Fixed Version:** {fixed_ver if fixed_ver else 'Not available'}")
-                  print(f"- **Title:** {title}")
-                  
-                  if vuln.get('Description'):
-                      print(f"- **Description:** {vuln['Description'][:200]}...")
-                  
-                  if vuln.get('References'):
-                      print(f"- **References:** {', '.join(vuln['References'][:3])}")
-                  
-                  print("\n")
+              if 'Results' in data:
+                  for result in data['Results']:
+                      if 'Vulnerabilities' in result:
+                          for vuln in result['Vulnerabilities']:
+                              total_vulns += 1
+                              sev = vuln.get('Severity', 'UNKNOWN')
+                              if sev in severities:
+                                  severities[sev] += 1
+              
+              f.write(f"**Total Vulnerabilities:** {total_vulns}\n\n")
+              f.write("| Severity | Count |\n")
+              f.write("| :--- | :---: |\n")
+              for sev, count in severities.items():
+                  icon = ""
+                  if sev == 'CRITICAL': icon = "🔴"
+                  elif sev == 'HIGH': icon = "🟠"
+                  elif sev == 'MEDIUM': icon = "🟡"
+                  elif sev == 'LOW': icon = "🔵"
+                  f.write(f"| {icon} {sev} | {count} |\n")
+              
+              f.write("\n\nCheck the **Artifacts** for the detailed HTML report.")
           EOF
-          
-          python3 convert_trivy_image.py > trivy-image-report.md
+          python3 generate_image_summary.py
 
-      - name: Generate PDF report
-        run: |
-          pandoc trivy-image-report.md -o trivy-image-security-report.pdf \
-            --pdf-engine=pdflatex \
-            -V geometry:margin=1in \
-            -V linkcolor:blue \
-            -V fontsize=11pt
-
-      - name: Upload PDF report as artifact
+      - name: Upload HTML report
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-image-security-report
-          path: trivy-image-security-report.pdf
-          retention-days: 30
+          name: trivy-image-report
+          path: trivy-image-report.html
+          retention-days: 7
