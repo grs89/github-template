@@ -44,11 +44,19 @@ flowchart TD
     B --> D[Trivy Code Scan]
     C --> E[Trivy Image Scan]
     
+    subgraph Shared [Reusability]
+        CA((".github/trivy/action.yml<br/>(Composite Action)"))
+    end
+
+    D -.-> |Uses| CA
+    E -.-> |Uses| CA
+    
     C --> F[("🐳 Docker Hub<br/>Multi-Arch Image")]
-    D --> G["📄 Code Security Report<br/>(PDF)"]
-    E --> H["📄 Image Security Report<br/>(PDF)"]
+    D --> G["📄 reports/trivy-fs<br/>(Summary + Full PDF)"]
+    E --> H["📄 reports/trivy-image<br/>(Summary + Full PDF)"]
     
     style A fill:#4CAF50,color:#fff
+    style CA fill:#9C27B0,color:#fff
     style F fill:#2496ED,color:#fff
     style G fill:#FF9800,color:#fff
     style H fill:#FF9800,color:#fff
@@ -137,6 +145,8 @@ Para un push de `v1.2.3`, se crean los siguientes tags:
 ```
 github-template/
 ├── .github/
+│   ├── trivy/
+│   │   └── action.yml            # Composite Action de seguridad
 │   └── workflows/
 │       └── docker-publish.yml    # Pipeline CI/CD
 ├── Dockerfile                     # Tu Dockerfile (requerido)
@@ -148,25 +158,22 @@ github-template/
 
 ## 🔐 Seguridad
 
-### Escaneo de Código
+### Escaneo via Composite Action
 
-Trivy analiza el repositorio buscando:
+Este template utiliza una **GitHub Composite Action** personalizada (`.github/trivy/action.yml`) para estandarizar el proceso de escaneo y reporte.
 
-- 🔓 Vulnerabilidades en dependencias
-- 🔑 Secrets expuestos
-- ⚙️ Misconfigurations en IaC
+### Escaneo de Código e Imagen
 
-### Escaneo de Imagen
+1. **Code Scan**: Analiza el repositorio en busca de vulnerabilidades en dependencias y secretos.
+2. **Image Scan**: Analiza la imagen Docker construida en busca de vulnerabilidades del SO y paquetes.
 
-Después del build, Trivy analiza la imagen Docker buscando:
+### Reportes Generados
 
-- 📦 Vulnerabilidades en paquetes del SO
-- 📚 Vulnerabilidades en dependencias de aplicación
-- 🏗️ Problemas en la configuración
+Para cada escaneo, se generan y suben como **Artifacts**:
 
-### Reportes
-
-Los reportes de seguridad se generan en formato PDF y están disponibles como **Artifacts** en GitHub Actions durante 30 días.
+- 📄 **Summary PDF**: Resumen ejecutivo con gráficas y conteo de vulnerabilidades.
+- 📄 **Full Report PDF**: Detalle técnico completo de cada hallazgo.
+- 📊 **GitHub Step Summary**: Resumen rápido visible directamente en el workflow run.
 
 | Severidad | Prioridad |
 |-----------|-----------|
