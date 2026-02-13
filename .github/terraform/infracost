@@ -1,0 +1,84 @@
+name: Terraform Cost Analysis (Infracost)
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  infracost:
+    name: Infracost Cost Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+
+      # ---------- INSTALL TOOLS ----------
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v3
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install playwright
+          npx playwright install chromium
+
+      # ---------- INFRACOST ANALYSIS ----------
+      - name: Generate Infracost JSON
+        run: |
+          infracost breakdown --path . \
+                            --format json \
+                            --out-file infracost.json
+
+      - name: Generate Infracost HTML Report
+        run: |
+          infracost output --path infracost.json \
+                          --format html \
+                          --out-file infracost.html
+
+      # ---------- HTML → PDF ----------
+      - name: Convert HTML to PDF
+        if: always()
+        run: |
+          cat <<'EOF' > render_cost.js
+          const { chromium } = require('playwright');
+          const fs = require('fs');
+
+          (async () => {
+            if (!fs.existsSync('infracost.html')) {
+              console.log('infracost.html not found');
+              return;
+            }
+
+            const browser = await chromium.launch();
+            const page = await browser.newPage();
+            
+            console.log('Rendering infracost.html');
+            await page.goto('file://' + process.cwd() + '/infracost.html');
+            await page.waitForTimeout(3000); // Wait for animations/charts to settle
+            
+            await page.pdf({ 
+              path: 'infracost-report.pdf', 
+              format: 'A4', 
+              printBackground: true,
+              margin: { top: '20px', bottom: '20px', left: '20px', right: '20px' }
+            });
+
+            await browser.close();
+          })();
+          EOF
+
+          node render_cost.js
+
+      # ---------- UPLOAD ----------
+      - name: Upload Cost Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: infracost-pdf-report
+          path: infracost-report.pdf
