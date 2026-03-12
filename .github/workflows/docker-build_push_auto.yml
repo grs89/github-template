@@ -1,0 +1,607 @@
+name: 🐳 Docker Build, Push & Scan (Auto)
+
+# ═══════════════════════════════════════════════
+# Equivalente al pipeline GitLab: docker-build_push_auto.yml
+# Etapas:
+#   1. detect-language  → Detecta lenguaje y calcula IMAGE_TAG
+#   2. lint             → Lint automático según lenguaje
+#   3. test             → Tests automáticos según lenguaje
+#   4. trivy-sast       → Escaneo de código fuente (filesystem)
+#   5. build-push       → Build y push de imagen Docker
+#   6. trivy-image-scan → Escaneo de la imagen publicada
+#   7. sign-image       → Firma de imagen con Cosign
+# ═══════════════════════════════════════════════
+
+on:
+  push:
+#    branches:
+#      - main
+#      - dev
+#      - qa
+#      - pt
+#      - develop
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+  workflow_call:
+    secrets:
+      REGISTRY:
+        required: false
+      REGISTRY_USER:
+        required: true
+      REGISTRY_PASSWORD:
+        required: true
+      COSIGN_PRIVATE_KEY:
+        required: false
+      COSIGN_PASSWORD:
+        required: false
+      DOCKERHUB_USERNAME:
+        required: true
+      DOCKERHUB_REPO:
+        required: true
+
+env:
+  REGISTRY: ${{ secrets.REGISTRY || 'ghcr.io' }}
+  IMAGE_NAME: ${{ secrets.REGISTRY || 'ghcr.io' }}/${{ github.repository }}
+  DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPO }}
+  PLATFORMS: linux/amd64,linux/arm64
+
+permissions:
+  contents: read
+  packages: write
+  security-events: write
+  id-token: write  # Requerido para Cosign keyless
+
+jobs:
+
+  # ═══════════════════════════════════════════════
+  # 🔍 Detectar lenguaje y calcular versión/tag
+  # ═══════════════════════════════════════════════
+  detect-language:
+    name: 🔍 Detect Language & Version
+    runs-on: ubuntu-latest
+    outputs:
+      detected_lang: ${{ steps.detect.outputs.detected_lang }}
+      app_version:   ${{ steps.detect.outputs.app_version }}
+      image_tag:     ${{ steps.detect.outputs.image_tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect language
+        id: detect
+        run: |
+          echo "🔍 Detectando lenguaje del proyecto..."
+          LANG="unknown"
+          APP_VERSION="${{ github.run_number }}"
+
+          if [ -f "go.mod" ]; then
+            LANG="go"
+            echo "🐹 Go detectado (go.mod)"
+          elif [ -f "pom.xml" ]; then
+            LANG="java-maven"
+            APP_VERSION=$(grep -m1 '<version>' pom.xml | sed -E 's/.*<version>(.*)<\/version>.*/\1/' || echo "$APP_VERSION")
+            echo "☕ Java Maven detectado (pom.xml)"
+          elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            LANG="java-gradle"
+            echo "☕ Java Gradle detectado"
+          elif [ -f "package.json" ]; then
+            LANG="js"
+            APP_VERSION=$(grep '"version"' package.json | head -1 | sed -E 's/.*"version"\s*:\s*"([^"]+)".*/\1/' || echo "$APP_VERSION")
+            echo "📦 JavaScript/TypeScript detectado (package.json)"
+          elif [ -f "pyproject.toml" ]; then
+            LANG="python"
+            APP_VERSION=$(grep -E '^version\s*=' pyproject.toml | head -1 | sed -E 's/.*=\s*"([^"]+)".*/\1/' || echo "$APP_VERSION")
+            echo "🐍 Python detectado (pyproject.toml)"
+          elif [ -f "requirements.txt" ]; then
+            LANG="python"
+            echo "🐍 Python detectado (requirements.txt)"
+          elif [ -f "setup.py" ]; then
+            LANG="python"
+            echo "🐍 Python detectado (setup.py)"
+          fi
+
+          # Override desde version.yml si existe
+          if [ -f "version.yml" ]; then
+            APP_VERSION=$(grep 'version:' version.yml | awk '{print $2}' | tr -d '"' | tr -d "'" || echo "$APP_VERSION")
+            echo "📄 Versión desde version.yml: ${APP_VERSION}"
+          fi
+
+          IMAGE_TAG="${{ github.ref_name }}_${APP_VERSION}"
+
+          echo ""
+          echo "═══════════════════════════════════"
+          echo "  Lenguaje:  ${LANG}"
+          echo "  Versión:   ${APP_VERSION}"
+          echo "  Tag:       ${IMAGE_TAG}"
+          echo "═══════════════════════════════════"
+
+          echo "detected_lang=${LANG}"      >> "$GITHUB_OUTPUT"
+          echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "image_tag=${IMAGE_TAG}"     >> "$GITHUB_OUTPUT"
+
+  # ═══════════════════════════════════════════════
+  # 🧹 Lint automático según lenguaje
+  # ═══════════════════════════════════════════════
+  lint:
+    name: 🧹 Lint
+    runs-on: ubuntu-latest
+    needs: detect-language
+    continue-on-error: true
+    env:
+      DETECTED_LANG: ${{ needs.detect-language.outputs.detected_lang }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run lint
+        run: |
+          case "$DETECTED_LANG" in
+            go)
+              echo "🐹 Instalando Go y golangci-lint..."
+              sudo apt-get install -y --no-install-recommends golang curl
+              curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b /usr/local/bin
+              echo "🔍 Ejecutando golangci-lint..."
+              golangci-lint run ./... --timeout 5m || true
+              ;;
+            js)
+              echo "📦 Configurando Node.js..."
+              sudo apt-get install -y --no-install-recommends nodejs npm
+              npm ci --prefer-offline --no-audit 2>/dev/null || npm install --no-audit
+              if grep -q '"lint"' package.json 2>/dev/null; then
+                npm run lint || true
+              else
+                echo "ℹ️ No hay script 'lint' en package.json"
+              fi
+              ;;
+            python)
+              echo "🐍 Instalando linters Python..."
+              sudo apt-get install -y --no-install-recommends python3 python3-pip
+              pip install --quiet --break-system-packages flake8 black 2>/dev/null || true
+              flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || true
+              black --check --diff . 2>/dev/null || true
+              ;;
+            java-*)
+              echo "☕ Lint Java no configurado por defecto. Usa SonarQube."
+              ;;
+            *)
+              echo "⚠️ Lenguaje no detectado. Omitiendo lint."
+              ;;
+          esac
+
+  # ═══════════════════════════════════════════════
+  # 🧪 Tests automáticos según lenguaje
+  # ═══════════════════════════════════════════════
+  test:
+    name: 🧪 Test
+    runs-on: ubuntu-latest
+    needs: detect-language
+    continue-on-error: true
+    env:
+      DETECTED_LANG: ${{ needs.detect-language.outputs.detected_lang }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Java)
+        if: ${{ startsWith(needs.detect-language.outputs.detected_lang, 'java') }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Go
+        if: ${{ needs.detect-language.outputs.detected_lang == 'go' }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Set up Node.js
+        if: ${{ needs.detect-language.outputs.detected_lang == 'js' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Set up Python
+        if: ${{ needs.detect-language.outputs.detected_lang == 'python' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run tests
+        run: |
+          case "$DETECTED_LANG" in
+            go)
+              echo "🧪 go test..."
+              go test ./... -v -coverprofile=coverage.out || true
+              if [ -f coverage.out ]; then go tool cover -func=coverage.out; fi
+              ;;
+            js)
+              npm ci --prefer-offline --no-audit 2>/dev/null || npm install --no-audit
+              echo "🧪 npm test..."
+              if npx jest --version 2>/dev/null; then
+                npx jest --coverage --passWithNoTests --ci || true
+              else
+                npm test || true
+              fi
+              ;;
+            python)
+              if [ -f requirements.txt ]; then pip install --quiet -r requirements.txt 2>/dev/null || true; fi
+              pip install --quiet pytest pytest-cov 2>/dev/null || true
+              echo "🧪 pytest..."
+              pytest --cov --cov-report=xml:coverage.xml --cov-report=term -v || true
+              ;;
+            java-maven)
+              echo "🧪 mvn test..."
+              mvn test -B -Dmaven.test.failure.ignore=true || true
+              ;;
+            java-gradle)
+              if [ -f gradlew ]; then chmod +x gradlew; ./gradlew test --continue || true
+              else gradle test --continue || true; fi
+              ;;
+            *)
+              echo "⚠️ Lenguaje no detectado. Omitiendo tests."
+              ;;
+          esac
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            coverage.out
+            coverage.xml
+            coverage/
+            target/site/jacoco/
+            build/reports/jacoco/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ═══════════════════════════════════════════════
+  # 🔐 Trivy SAST – escaneo de código fuente (filesystem)
+  # ═══════════════════════════════════════════════
+  trivy-sast:
+    name: 🔐 Trivy SAST (filesystem)
+    runs-on: ubuntu-latest
+    needs: detect-language
+    continue-on-error: true
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          format: 'sarif'
+          output: 'trivy-fs-report.sarif'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-fs-report.sarif'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-sast-report
+          path: trivy-fs-report.sarif
+          retention-days: 7
+
+  # ═══════════════════════════════════════════════
+  # 🏗️ Build & Push de imagen Docker
+  # ═══════════════════════════════════════════════
+  build-push:
+    name: 🏗️ Build & Push Docker Image
+    runs-on: ubuntu-latest
+    needs:
+      - detect-language
+      - lint
+      - test
+    env:
+      DETECTED_LANG: ${{ needs.detect-language.outputs.detected_lang }}
+      IMAGE_TAG: ${{ needs.detect-language.outputs.image_tag }}
+    outputs:
+      image_digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Determine Dockerfile
+        id: dockerfile
+        run: |
+          DOCKERFILE="Dockerfile"
+          if [ "$DETECTED_LANG" = "java-maven" ] || [ "$DETECTED_LANG" = "java-gradle" ]; then
+            if [ -f "src/main/docker/Dockerfile.multistaged" ]; then
+              DOCKERFILE="src/main/docker/Dockerfile.multistaged"
+              echo "☕ Usando Dockerfile.multistaged para Java"
+            fi
+          fi
+          echo "path=${DOCKERFILE}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ env.IMAGE_TAG }}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=ref,event=tag
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ steps.dockerfile.outputs.path }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache,mode=max
+
+      - name: Image digest
+        run: |
+          echo "✅ Imagen publicada exitosamente."
+          echo "   Digest: ${{ steps.build.outputs.digest }}"
+
+  # ═══════════════════════════════════════════════
+  # 🔎 Trivy – escaneo de la imagen publicada
+  # ═══════════════════════════════════════════════
+  trivy-image-scan:
+    name: 🔎 Trivy Image Scan
+    runs-on: ubuntu-latest
+    needs:
+      - detect-language
+      - build-push
+    continue-on-error: true
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      IMAGE_TAG: ${{ needs.detect-language.outputs.image_tag }}
+    steps:
+      - name: Log in to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Run Trivy image scan (SARIF)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: '${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}'
+          format: 'sarif'
+          output: 'trivy-image-report.sarif'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+
+      - name: Run Trivy image scan (table)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: '${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}'
+          format: 'table'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-image-report.sarif'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-image-report
+          path: trivy-image-report.sarif
+          retention-days: 7
+
+  # ═══════════════════════════════════════════════
+  # ✍️ Firma de imagen con Cosign
+  # ═══════════════════════════════════════════════
+  sign-image:
+    name: ✍️ Sign Image (Cosign)
+    runs-on: ubuntu-latest
+    needs:
+      - build-push
+      - trivy-image-scan
+    continue-on-error: true
+    permissions:
+      id-token: write
+      packages: write
+    env:
+      IMAGE_DIGEST: ${{ needs.build-push.outputs.image_digest }}
+      # Exponer el secret como env var para poder evaluarlo en condiciones `if:`
+      COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+      COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+    steps:
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Log in to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Sign image with private key
+        if: ${{ env.COSIGN_PRIVATE_KEY != '' }}
+        run: |
+          echo "🔏 Firmando imagen con clave privada..."
+          cosign sign --key env://COSIGN_PRIVATE_KEY \
+            "${{ env.IMAGE_NAME }}@${{ env.IMAGE_DIGEST }}"
+
+      - name: Sign image keyless (OIDC / Sigstore)
+        if: ${{ env.COSIGN_PRIVATE_KEY == '' }}
+        run: |
+          echo "🔏 Firmando imagen (keyless OIDC - Sigstore)..."
+          cosign sign --yes \
+            "${{ env.IMAGE_NAME }}@${{ env.IMAGE_DIGEST }}"
+
+  # ═══════════════════════════════════════════════
+  # 🔎 Trivy – escaneo de la imagen Docker Hub
+  # Escanea la imagen generada por build-and-push
+  # ═══════════════════════════════════════════════
+  trivy-dockerhub-scan:
+    name: 🔎 Trivy Docker Hub Image Scan
+    runs-on: ubuntu-latest
+    needs:
+      - detect-language
+      - build-push
+    continue-on-error: true
+    permissions:
+      contents: read
+      security-events: write
+    env:
+      IMAGE_TAG: ${{ needs.detect-language.outputs.image_tag }}
+      DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPO }}
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Run Trivy image scan (SARIF)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: '${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}'
+          format: 'sarif'
+          output: 'trivy-dockerhub-report.sarif'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+
+      - name: Run Trivy image scan (table)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: '${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}'
+          format: 'table'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-dockerhub-report.sarif'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-dockerhub-report
+          path: trivy-dockerhub-report.sarif
+          retention-days: 7
+
+  # ═══════════════════════════════════════════════
+  # 📄 Reporte de Seguridad HTML/PDF
+  # Consolida todos los reportes Trivy en HTML y PDF
+  # usando el script utilidades/generate_report.py
+  # ═══════════════════════════════════════════════
+  generate-security-report:
+    name: 📄 Generate Security Report (HTML/PDF)
+    runs-on: ubuntu-latest
+    needs:
+      - trivy-sast
+      - trivy-image-scan
+      - trivy-dockerhub-scan
+    if: always()
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Trivy SAST report
+        uses: actions/download-artifact@v4
+        with:
+          name: trivy-sast-report
+        continue-on-error: true
+
+      - name: Download Trivy image report
+        uses: actions/download-artifact@v4
+        with:
+          name: trivy-image-report
+        continue-on-error: true
+
+      - name: Download Trivy Docker Hub report
+        uses: actions/download-artifact@v4
+        with:
+          name: trivy-dockerhub-report
+        continue-on-error: true
+
+      - name: Download coverage reports
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-reports
+        continue-on-error: true
+
+      - name: Convert SARIF reports to Trivy JSON format
+        run: |
+          # El script generate_report.py espera trivy-report.json (formato Trivy nativo).
+          # Los scans de GitHub Actions generan SARIF, así que los renombramos para que
+          # el script los detecte por sus palabras clave en el nombre de archivo.
+          echo "🔄 Renombrando archivos SARIF para normalización..."
+          [ -f trivy-fs-report.sarif    ] && cp trivy-fs-report.sarif    trivy-sast-report.json   || true
+          [ -f trivy-image-report.sarif ] && cp trivy-image-report.sarif  trivy-report.json        || true
+          [ -f trivy-dockerhub-report.sarif ] && cp trivy-dockerhub-report.sarif trivy-dockerhub-report.json || true
+          ls -lh *.json *.sarif 2>/dev/null || echo "Sin archivos de reporte aún."
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install report dependencies
+        run: |
+          pip install --quiet jinja2 weasyprint
+
+      - name: Run generate_report.py
+        run: |
+          echo "📊 Generando reporte de seguridad consolidado..."
+          python .github/utilidades/generate_report.py
+
+      - name: Upload HTML/PDF reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-report
+          path: |
+            security-report.html
+            security-report.pdf
+            *.html
+            *.pdf
+          retention-days: 30
+          if-no-files-found: ignore
