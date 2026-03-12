@@ -23,7 +23,20 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  prepare:
+    name: 🎨 Prepare Registry Names
+    runs-on: ubuntu-latest
+    outputs:
+      docker_image_lc: ${{ steps.lowercase.outputs.docker_image_lc }}
+    steps:
+      - name: Lowercase image name
+        id: lowercase
+        run: |
+          DOCKER_IMAGE_LC=$(echo "${{ env.DOCKER_IMAGE }}" | tr '[:upper:]' '[:lower:]')
+          echo "docker_image_lc=${DOCKER_IMAGE_LC}" >> "$GITHUB_OUTPUT"
+
   build-and-push:
+    needs: prepare
     runs-on: ubuntu-latest
     
     steps:
@@ -65,8 +78,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache
-          cache-to: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache,mode=max
+          cache-from: type=registry,ref=${{ needs.prepare.outputs.docker_image_lc }}:buildcache
+          cache-to: type=registry,ref=${{ needs.prepare.outputs.docker_image_lc }}:buildcache,mode=max
 
       - name: Image digest
         run: echo ${{ steps.build-and-push.outputs.digest }}
@@ -96,7 +109,9 @@ jobs:
 
   trivy-image-scan:
     runs-on: ubuntu-latest
-    needs: build-and-push
+    needs: 
+      - build-and-push
+      - prepare
     permissions:
       contents: read
       security-events: write
@@ -123,7 +138,7 @@ jobs:
         uses: ./.github-template/.github/trivy
         with:
           scan-type: 'image'
-          image-ref: ${{ env.DOCKER_IMAGE }}:${{ steps.meta.outputs.version || 'latest' }}
+          image-ref: ${{ needs.prepare.outputs.docker_image_lc }}:${{ steps.meta.outputs.version || 'latest' }}
           output-prefix: 'trivy-image'
           artifact-name: 'trivy-image-reports'
 

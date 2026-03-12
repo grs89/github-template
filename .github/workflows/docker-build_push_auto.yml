@@ -71,6 +71,8 @@ jobs:
       detected_lang: ${{ steps.detect.outputs.detected_lang }}
       app_version:   ${{ steps.detect.outputs.app_version }}
       image_tag:     ${{ steps.detect.outputs.image_tag }}
+      image_name_lc:  ${{ steps.detect.outputs.image_name_lc }}
+      docker_image_lc: ${{ steps.detect.outputs.docker_image_lc }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -126,6 +128,12 @@ jobs:
           echo "detected_lang=${LANG}"      >> "$GITHUB_OUTPUT"
           echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
           echo "image_tag=${IMAGE_TAG}"     >> "$GITHUB_OUTPUT"
+
+          # Normalizar nombres de imagen a minúsculas
+          IMAGE_NAME_LC=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          DOCKER_IMAGE_LC=$(echo "${{ env.DOCKER_IMAGE }}" | tr '[:upper:]' '[:lower:]')
+          echo "image_name_lc=${IMAGE_NAME_LC}"   >> "$GITHUB_OUTPUT"
+          echo "docker_image_lc=${DOCKER_IMAGE_LC}" >> "$GITHUB_OUTPUT"
 
   # ═══════════════════════════════════════════════
   # 🧹 Lint automático según lenguaje
@@ -354,7 +362,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.IMAGE_NAME }}
+          images: ${{ needs.detect-language.outputs.image_name_lc }}
           tags: |
             type=raw,value=${{ env.IMAGE_TAG }}
             type=raw,value=latest,enable={{is_default_branch}}
@@ -370,8 +378,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.IMAGE_NAME }}:buildcache,mode=max
+          cache-from: type=registry,ref=${{ needs.detect-language.outputs.image_name_lc }}:buildcache
+          cache-to: type=registry,ref=${{ needs.detect-language.outputs.image_name_lc }}:buildcache,mode=max
 
       - name: Image digest
         run: |
@@ -405,7 +413,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'image'
-          image-ref: '${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}'
+          image-ref: '${{ needs.detect-language.outputs.image_name_lc }}:${{ env.IMAGE_TAG }}'
           format: 'sarif'
           output: 'trivy-image-report.sarif'
           severity: 'HIGH,CRITICAL'
@@ -415,7 +423,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'image'
-          image-ref: '${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}'
+          image-ref: '${{ needs.detect-language.outputs.image_name_lc }}:${{ env.IMAGE_TAG }}'
           format: 'table'
           severity: 'HIGH,CRITICAL'
           exit-code: '0'
@@ -468,14 +476,14 @@ jobs:
         run: |
           echo "🔏 Firmando imagen con clave privada..."
           cosign sign --key env://COSIGN_PRIVATE_KEY \
-            "${{ env.IMAGE_NAME }}@${{ env.IMAGE_DIGEST }}"
+            "${{ needs.detect-language.outputs.image_name_lc }}@${{ env.IMAGE_DIGEST }}"
 
       - name: Sign image keyless (OIDC / Sigstore)
         if: ${{ env.COSIGN_PRIVATE_KEY == '' }}
         run: |
           echo "🔏 Firmando imagen (keyless OIDC - Sigstore)..."
           cosign sign --yes \
-            "${{ env.IMAGE_NAME }}@${{ env.IMAGE_DIGEST }}"
+            "${{ needs.detect-language.outputs.image_name_lc }}@${{ env.IMAGE_DIGEST }}"
 
   # ═══════════════════════════════════════════════
   # 🔎 Trivy – escaneo de la imagen Docker Hub
@@ -505,7 +513,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'image'
-          image-ref: '${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}'
+          image-ref: '${{ needs.detect-language.outputs.docker_image_lc }}:${{ env.IMAGE_TAG }}'
           format: 'sarif'
           output: 'trivy-dockerhub-report.sarif'
           severity: 'HIGH,CRITICAL'
@@ -515,7 +523,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'image'
-          image-ref: '${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}'
+          image-ref: '${{ needs.detect-language.outputs.docker_image_lc }}:${{ env.IMAGE_TAG }}'
           format: 'table'
           severity: 'HIGH,CRITICAL'
           exit-code: '0'
