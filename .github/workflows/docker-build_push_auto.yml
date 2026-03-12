@@ -29,9 +29,9 @@ on:
       REGISTRY:
         required: false
       REGISTRY_USER:
-        required: true
+        required: false
       REGISTRY_PASSWORD:
-        required: true
+        required: false
       COSIGN_PRIVATE_KEY:
         required: false
       COSIGN_PASSWORD:
