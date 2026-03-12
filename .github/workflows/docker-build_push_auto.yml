@@ -48,6 +48,7 @@ env:
   IMAGE_NAME: ${{ secrets.REGISTRY || 'ghcr.io' }}/${{ github.repository }}
   DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPO }}
   PLATFORMS: linux/amd64,linux/arm64
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 # Permisos declarados a nivel de workflow para compatibilidad con workflow_call
 permissions:
