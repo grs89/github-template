@@ -59,7 +59,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.DOCKER_IMAGE }}
+          images: ${{ needs.prepare.outputs.docker_image_lc }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -124,7 +124,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.DOCKER_IMAGE }}
+          images: ${{ needs.prepare.outputs.docker_image_lc }}
           tags: |
             type=semver,pattern={{version}}
 
