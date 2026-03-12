@@ -45,8 +45,6 @@ on:
 
 env:
   REGISTRY: ${{ secrets.REGISTRY || 'ghcr.io' }}
-  IMAGE_NAME: ${{ secrets.REGISTRY || 'ghcr.io' }}/${{ github.repository }}
-  DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPO }}
   PLATFORMS: linux/amd64,linux/arm64
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -71,7 +69,7 @@ jobs:
       detected_lang: ${{ steps.detect.outputs.detected_lang }}
       app_version:   ${{ steps.detect.outputs.app_version }}
       image_tag:     ${{ steps.detect.outputs.image_tag }}
-      image_name_lc:  ${{ steps.detect.outputs.image_name_lc }}
+      image_name_lc: ${{ steps.detect.outputs.image_name_lc }}
       docker_image_lc: ${{ steps.detect.outputs.docker_image_lc }}
     steps:
       - name: Checkout code
@@ -129,15 +127,25 @@ jobs:
           echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
           echo "image_tag=${IMAGE_TAG}"     >> "$GITHUB_OUTPUT"
 
-          # Calcular y normalizar nombres de imagen directamente (evita fallos de env en reusable workflows)
-          RAW_IMAGE_NAME="${{ secrets.REGISTRY || 'ghcr.io' }}/${{ github.repository }}"
-          RAW_DOCKER_IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPO }}"
+          # Calcular y normalizar nombres de imagen directamente
+          # Usamos variables intermadias para asegurar la evaluación y facilitar el tolower
+          RAW_REGISTRY="${{ secrets.REGISTRY || 'ghcr.io' }}"
+          RAW_REPO="${{ github.repository }}"
+          RAW_DOCKER_USER="${{ secrets.DOCKERHUB_USERNAME }}"
+          RAW_DOCKER_REPO="${{ secrets.DOCKERHUB_REPO }}"
           
-          IMAGE_NAME_LC=$(echo "$RAW_IMAGE_NAME" | tr '[:upper:]' '[:lower:]')
-          DOCKER_IMAGE_LC=$(echo "$RAW_DOCKER_IMAGE" | tr '[:upper:]' '[:lower:]')
+          IMAGE_NAME_LC=$(echo "${RAW_REGISTRY}/${RAW_REPO}" | tr '[:upper:]' '[:lower:]')
+          DOCKER_IMAGE_LC=""
+          if [ -n "$RAW_DOCKER_USER" ] && [ -n "$RAW_DOCKER_REPO" ]; then
+            DOCKER_IMAGE_LC=$(echo "${RAW_DOCKER_USER}/${RAW_DOCKER_REPO}" | tr '[:upper:]' '[:lower:]')
+          fi
           
-          echo "image_name_lc=${IMAGE_NAME_LC}"   >> "$GITHUB_OUTPUT"
+          echo "image_name_lc=${IMAGE_NAME_LC}"     >> "$GITHUB_OUTPUT"
           echo "docker_image_lc=${DOCKER_IMAGE_LC}" >> "$GITHUB_OUTPUT"
+          
+          # Debug para verificar en los logs de GHA (visible para el usuario)
+          echo "🚀 Image Name LC: ${IMAGE_NAME_LC}"
+          echo "🚀 Docker Image LC: ${DOCKER_IMAGE_LC}"
 
   # ═══════════════════════════════════════════════
   # 🧹 Lint automático según lenguaje
@@ -346,7 +354,7 @@ jobs:
       - name: Log in to Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ secrets.REGISTRY || 'ghcr.io' }}
           username: ${{ secrets.REGISTRY_USER || github.actor }}
           password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
 
@@ -368,7 +376,7 @@ jobs:
         with:
           images: ${{ needs.detect-language.outputs.image_name_lc }}
           tags: |
-            type=raw,value=${{ env.IMAGE_TAG }}
+            type=raw,value=${{ needs.detect-language.outputs.image_tag }}
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
             type=ref,event=tag
@@ -409,7 +417,7 @@ jobs:
       - name: Log in to Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ secrets.REGISTRY || 'ghcr.io' }}
           username: ${{ secrets.REGISTRY_USER || github.actor }}
           password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
 
@@ -417,7 +425,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'image'
-          image-ref: '${{ needs.detect-language.outputs.image_name_lc }}:${{ env.IMAGE_TAG }}'
+          image-ref: '${{ needs.detect-language.outputs.image_name_lc }}:${{ needs.detect-language.outputs.image_tag }}'
           format: 'sarif'
           output: 'trivy-image-report.sarif'
           severity: 'HIGH,CRITICAL'
@@ -427,7 +435,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'image'
-          image-ref: '${{ needs.detect-language.outputs.image_name_lc }}:${{ env.IMAGE_TAG }}'
+          image-ref: '${{ needs.detect-language.outputs.image_name_lc }}:${{ needs.detect-language.outputs.image_tag }}'
           format: 'table'
           severity: 'HIGH,CRITICAL'
           exit-code: '0'
@@ -472,7 +480,7 @@ jobs:
       - name: Log in to Registry
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ secrets.REGISTRY || 'ghcr.io' }}
           username: ${{ secrets.REGISTRY_USER || github.actor }}
           password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
 
@@ -518,7 +526,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'image'
-          image-ref: '${{ needs.detect-language.outputs.docker_image_lc }}:${{ env.IMAGE_TAG }}'
+          image-ref: '${{ needs.detect-language.outputs.docker_image_lc }}:${{ needs.detect-language.outputs.image_tag }}'
           format: 'sarif'
           output: 'trivy-dockerhub-report.sarif'
           severity: 'HIGH,CRITICAL'
@@ -528,7 +536,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'image'
-          image-ref: '${{ needs.detect-language.outputs.docker_image_lc }}:${{ env.IMAGE_TAG }}'
+          image-ref: '${{ needs.detect-language.outputs.docker_image_lc }}:${{ needs.detect-language.outputs.image_tag }}'
           format: 'table'
           severity: 'HIGH,CRITICAL'
           exit-code: '0'
