@@ -25,6 +25,12 @@ on:
   workflow_dispatch:
 
   workflow_call:
+    inputs:
+      CONTEXT_DIR:
+        description: 'Directorio del código fuente (contexto de build)'
+        required: false
+        default: '.'
+        type: string
     secrets:
       REGISTRY:
         required: false
@@ -45,6 +51,7 @@ on:
 
 env:
   REGISTRY: ${{ secrets.REGISTRY || 'ghcr.io' }}
+  CONTEXT_DIR: ${{ inputs.CONTEXT_DIR || '.' }}
   PLATFORMS: linux/amd64,linux/arm64
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -77,6 +84,7 @@ jobs:
 
       - name: Detect language
         id: detect
+        working-directory: ${{ env.CONTEXT_DIR }}
         run: |
           echo "🔍 Detectando lenguaje del proyecto..."
           LANG="unknown"
@@ -162,6 +170,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run lint
+        working-directory: ${{ env.CONTEXT_DIR }}
         run: |
           case "$DETECTED_LANG" in
             go)
@@ -236,6 +245,7 @@ jobs:
           python-version: '3.x'
 
       - name: Run tests
+        working-directory: ${{ env.CONTEXT_DIR }}
         run: |
           case "$DETECTED_LANG" in
             go)
@@ -304,6 +314,7 @@ jobs:
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'fs'
+          scan-ref: '${{ env.CONTEXT_DIR }}'
           format: 'sarif'
           output: 'trivy-fs-report.sarif'
           severity: 'HIGH,CRITICAL'
@@ -360,6 +371,7 @@ jobs:
 
       - name: Determine Dockerfile
         id: dockerfile
+        working-directory: ${{ env.CONTEXT_DIR }}
         run: |
           DOCKERFILE="Dockerfile"
           if [ "$DETECTED_LANG" = "java-maven" ] || [ "$DETECTED_LANG" = "java-gradle" ]; then
@@ -385,7 +397,7 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ${{ env.CONTEXT_DIR }}
           file: ${{ steps.dockerfile.outputs.path }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
