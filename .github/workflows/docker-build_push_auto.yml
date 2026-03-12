@@ -49,11 +49,7 @@ env:
   DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPO }}
   PLATFORMS: linux/amd64,linux/arm64
 
-permissions:
-  contents: read
-  packages: write
-  security-events: write
-  id-token: write  # Requerido para Cosign keyless
+# Permisos declarados a nivel de job para compatibilidad con workflow_call
 
 jobs:
 
@@ -63,6 +59,8 @@ jobs:
   detect-language:
     name: 🔍 Detect Language & Version
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       detected_lang: ${{ steps.detect.outputs.detected_lang }}
       app_version:   ${{ steps.detect.outputs.app_version }}
@@ -305,6 +303,9 @@ jobs:
   build-push:
     name: 🏗️ Build & Push Docker Image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     needs:
       - detect-language
       - lint
