@@ -37,9 +37,11 @@ on:
       COSIGN_PASSWORD:
         required: false
       DOCKERHUB_USERNAME:
-        required: true
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
       DOCKERHUB_REPO:
-        required: true
+        required: false
 
 env:
   REGISTRY: ${{ secrets.REGISTRY || 'ghcr.io' }}
@@ -527,17 +529,16 @@ jobs:
 
   # ═══════════════════════════════════════════════
   # 📄 Reporte de Seguridad HTML/PDF
-  # Consolida todos los reportes Trivy en HTML y PDF
-  # usando el script utilidades/generate_report.py
+  # Workflow reutilizable → .github/utilidades/generate-security-report.yml
   # ═══════════════════════════════════════════════
   generate-security-report:
-    name: 📄 Generate Security Report (HTML/PDF)
-    runs-on: ubuntu-latest
+    name: 📄 Generate Security Report
     needs:
       - trivy-sast
       - trivy-image-scan
       - trivy-dockerhub-scan
     if: always()
+    runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
@@ -568,25 +569,24 @@ jobs:
           name: coverage-reports
         continue-on-error: true
 
-      - name: Convert SARIF reports to Trivy JSON format
+      - name: Rename SARIF files for generate_report.py detection
         run: |
-          # El script generate_report.py espera trivy-report.json (formato Trivy nativo).
-          # Los scans de GitHub Actions generan SARIF, así que los renombramos para que
-          # el script los detecte por sus palabras clave en el nombre de archivo.
-          echo "🔄 Renombrando archivos SARIF para normalización..."
-          [ -f trivy-fs-report.sarif    ] && cp trivy-fs-report.sarif    trivy-sast-report.json   || true
-          [ -f trivy-image-report.sarif ] && cp trivy-image-report.sarif  trivy-report.json        || true
+          # generate_report.py detecta archivos por nombre (busca la palabra 'trivy').
+          # Los scans producen SARIF; los renombramos a .json para que sean reconocidos.
+          echo "🔄 Preparando archivos de reporte..."
+          [ -f trivy-fs-report.sarif       ] && cp trivy-fs-report.sarif       trivy-sast-report.json      || true
+          [ -f trivy-image-report.sarif     ] && cp trivy-image-report.sarif     trivy-report.json           || true
           [ -f trivy-dockerhub-report.sarif ] && cp trivy-dockerhub-report.sarif trivy-dockerhub-report.json || true
-          ls -lh *.json *.sarif 2>/dev/null || echo "Sin archivos de reporte aún."
+          echo "📂 Archivos disponibles:"
+          ls -lh *.json *.sarif 2>/dev/null || echo "  (ninguno encontrado)"
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
 
-      - name: Install report dependencies
-        run: |
-          pip install --quiet jinja2 weasyprint
+      - name: Install dependencies
+        run: pip install --quiet jinja2 weasyprint
 
       - name: Run generate_report.py
         run: |
