@@ -32,7 +32,8 @@ jobs:
       - name: Lowercase image name
         id: lowercase
         run: |
-          DOCKER_IMAGE_LC=$(echo "${{ env.DOCKER_IMAGE }}" | tr '[:upper:]' '[:lower:]')
+          RAW_DOCKER_IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPO }}"
+          DOCKER_IMAGE_LC=$(echo "$RAW_DOCKER_IMAGE" | tr '[:upper:]' '[:lower:]')
           echo "docker_image_lc=${DOCKER_IMAGE_LC}" >> "$GITHUB_OUTPUT"
 
   build-and-push:
