@@ -49,7 +49,12 @@ env:
   DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPO }}
   PLATFORMS: linux/amd64,linux/arm64
 
-# Permisos declarados a nivel de job para compatibilidad con workflow_call
+# Permisos declarados a nivel de workflow para compatibilidad con workflow_call
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  security-events: write
 
 jobs:
 
