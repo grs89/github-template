@@ -5,9 +5,14 @@ on:
   workflow_call:
     inputs:
       CONTEXT_DIR:
-        description: 'Directorio del código fuente (contexto de build)'
+        description: 'Directorio del código fuente para detección de versión (eg. pom.xml)'
         required: false
         default: '.'
+        type: string
+      DOCKERFILE_PATH:
+        description: 'Ruta relativa al Dockerfile (ej. ./Dockerfile o ./mi_app/Dockerfile)'
+        required: false
+        default: './Dockerfile'
         type: string
     secrets:
       DOCKERHUB_USERNAME:
@@ -25,6 +30,7 @@ on:
 
 env:
   CONTEXT_DIR: ${{ inputs.CONTEXT_DIR || '.' }}
+  DOCKERFILE_PATH: ${{ inputs.DOCKERFILE_PATH || './Dockerfile' }}
   PLATFORMS: linux/amd64,linux/arm64
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -76,8 +82,8 @@ jobs:
         id: build
         uses: docker/build-push-action@v5
         with:
-          context: ${{ env.CONTEXT_DIR }}
-          file: ./Dockerfile
+          context: .
+          file: ${{ env.DOCKERFILE_PATH }}
           platforms: ${{ env.PLATFORMS }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}

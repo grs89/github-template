@@ -27,9 +27,14 @@ on:
   workflow_call:
     inputs:
       CONTEXT_DIR:
-        description: 'Directorio del código fuente (contexto de build)'
+        description: 'Directorio del código fuente para evaluación del lenguage (eg pom.xml)'
         required: false
         default: '.'
+        type: string
+      DOCKERFILE_PATH:
+        description: 'Ruta relativa al Dockerfile (ej. ./Dockerfile o ./log_processor/Dockerfile)'
+        required: false
+        default: './Dockerfile'
         type: string
     secrets:
       REGISTRY:
@@ -52,6 +57,7 @@ on:
 env:
   REGISTRY: ${{ secrets.REGISTRY || 'ghcr.io' }}
   CONTEXT_DIR: ${{ inputs.CONTEXT_DIR || '.' }}
+  DOCKERFILE_PATH: ${{ inputs.DOCKERFILE_PATH || './Dockerfile' }}
   PLATFORMS: linux/amd64,linux/arm64
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -362,13 +368,14 @@ jobs:
         id: dockerfile
         working-directory: ${{ env.CONTEXT_DIR }}
         run: |
-          DOCKERFILE="Dockerfile"
+          DOCKERFILE="${{ env.DOCKERFILE_PATH }}"
           if [ "$DETECTED_LANG" = "java-maven" ] || [ "$DETECTED_LANG" = "java-gradle" ]; then
             if [ -f "src/main/docker/Dockerfile.multistaged" ]; then
               DOCKERFILE="src/main/docker/Dockerfile.multistaged"
               echo "☕ Usando Dockerfile.multistaged para Java"
             fi
           fi
+          # Ensure path is relative if DOCKERFILE_PATH starts with ./
           echo "path=${DOCKERFILE}" >> "$GITHUB_OUTPUT"
 
       - name: Extract metadata (tags, labels)
@@ -386,7 +393,7 @@ jobs:
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: ${{ env.CONTEXT_DIR }}
+          context: .
           file: ${{ steps.dockerfile.outputs.path }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
