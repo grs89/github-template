@@ -24,12 +24,12 @@ Template de repositorio GitHub con pipeline CI/CD preconfigurado para construcci
 
 ## ✨ Características
 
-| Característica | Descripción |
-|----------------|-------------|
 | 🏗️ **Build Multi-Arquitectura** | Soporte para `linux/amd64` y `linux/arm64` |
 | 🔐 **Análisis de Seguridad** | Escaneo con Trivy para código e imágenes |
-| 📦 **Docker Hub Integration** | Publicación automática en Docker Hub |
+| 📦 **Docker Hub & GHCR** | Publicación automática en múltiples registros |
 | 🏷️ **Versionado Semántico** | Tags automáticos basados en `v*.*.*` |
+| 📁 **Soporte Subdirectorios** | Opción `CONTEXT_DIR` para proyectos no raíz |
+| 🔍 **Detección Automática** | Identifica lenguaje y Dockerfile automáticamente |
 | 📄 **Reportes PDF** | Generación automática de reportes de vulnerabilidades |
 | ⚡ **Cache Optimizado** | Cache de capas Docker para builds más rápidos |
 
@@ -126,6 +126,19 @@ git push origin v1.0.0
 
 También puedes ejecutar el workflow manualmente desde la pestaña **Actions** en GitHub.
 
+### Reusable Workflow (Recomendado)
+
+Si deseas usar este pipeline en otro repositorio como un workflow reutilizable:
+
+```yaml
+jobs:
+  deploy:
+    uses: grs89/github-template/.github/workflows/docker-build_push_auto.yml@v2
+    with:
+      CONTEXT_DIR: '.'  # Opcional: directorio si el código no está en la raíz
+    secrets: inherit    # Hereda secretos del repo (DOCKERHUB_*, REGISTRY_*)
+```
+
 ### Tags Generados
 
 Para un push de `v1.2.3`, se crean los siguientes tags:
@@ -148,8 +161,9 @@ github-template/
 │   ├── trivy/
 │   │   └── action.yml            # Composite Action de seguridad
 │   └── workflows/
-│       └── docker-publish.yml    # Pipeline CI/CD
-├── Dockerfile                     # Tu Dockerfile (requerido)
+│       ├── docker-publish.yml    # Pipeline para tags (Docker Hub)
+│       └── docker-build_push_auto.yml # Pipeline automático (v2)
+├── Dockerfile                     # Tu Dockerfile (auto-detectado)
 ├── .dockerignore                  # Archivos a excluir del build
 └── README.md                      # Este archivo
 ```
