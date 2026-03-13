@@ -366,13 +366,13 @@ jobs:
 
       - name: Determine Dockerfile
         id: dockerfile
-        working-directory: ${{ env.CONTEXT_DIR }}
         run: |
           DOCKERFILE="${{ env.DOCKERFILE_PATH }}"
           if [ "$DETECTED_LANG" = "java-maven" ] || [ "$DETECTED_LANG" = "java-gradle" ]; then
-            if [ -f "src/main/docker/Dockerfile.multistaged" ]; then
-              DOCKERFILE="src/main/docker/Dockerfile.multistaged"
-              echo "☕ Usando Dockerfile.multistaged para Java"
+            JAVA_DOCKERFILE="${{ env.CONTEXT_DIR }}/src/main/docker/Dockerfile.multistaged"
+            if [ -f "$JAVA_DOCKERFILE" ]; then
+              DOCKERFILE="$JAVA_DOCKERFILE"
+              echo "☕ Usando Dockerfile.multistaged para Java en $JAVA_DOCKERFILE"
             fi
           fi
           # Ensure path is relative if DOCKERFILE_PATH starts with ./
