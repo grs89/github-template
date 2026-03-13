@@ -29,30 +29,20 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  prepare:
-    name: 🎨 Prepare Registry Names
-    runs-on: ubuntu-latest
-    outputs:
-      docker_image_lc: ${{ steps.lowercase.outputs.docker_image_lc }}
-    steps:
-      - name: Lowercase image name
-        id: lowercase
-        env:
-          CTX_DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
-          CTX_DOCKER_REPO: ${{ secrets.DOCKERHUB_REPO }}
-        run: |
-          RAW_DOCKER_IMAGE="${CTX_DOCKER_USER}/${CTX_DOCKER_REPO}"
-          DOCKER_IMAGE_LC="${RAW_DOCKER_IMAGE,,}"
-          DOCKER_IMAGE_LC="${DOCKER_IMAGE_LC// /}"
-          DOCKER_IMAGE_LC="${DOCKER_IMAGE_LC//$'\n'/}"
-          DOCKER_IMAGE_LC="${DOCKER_IMAGE_LC//$'\r'/}"
-          echo "docker_image_lc=${DOCKER_IMAGE_LC}" >> "$GITHUB_OUTPUT"
-
   build-and-push:
-    needs: prepare
     runs-on: ubuntu-latest
     
     steps:
+      - name: Prep Image Name
+        id: prep
+        env:
+          D_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          D_REPO: ${{ secrets.DOCKERHUB_REPO }}
+        run: |
+          IMG="${D_USER}/${D_REPO}"
+          D_LC="${IMG,,}"
+          echo "docker_image_lc=${D_LC}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -72,7 +62,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ needs.prepare.outputs.docker_image_lc }}
+          images: ${{ steps.prep.outputs.docker_image_lc }}
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -83,6 +73,7 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: ${{ env.CONTEXT_DIR }}
@@ -91,11 +82,11 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ needs.prepare.outputs.docker_image_lc }}:buildcache
-          cache-to: type=registry,ref=${{ needs.prepare.outputs.docker_image_lc }}:buildcache,mode=max
+          cache-from: type=registry,ref=${{ steps.prep.outputs.docker_image_lc }}:buildcache
+          cache-to: type=registry,ref=${{ steps.prep.outputs.docker_image_lc }}:buildcache,mode=max
 
       - name: Image digest
-        run: echo ${{ steps.build-and-push.outputs.digest }}
+        run: echo ${{ steps.build.outputs.digest }}
 
   trivy-code-scan:
     runs-on: ubuntu-latest
@@ -123,9 +114,7 @@ jobs:
 
   trivy-image-scan:
     runs-on: ubuntu-latest
-    needs: 
-      - build-and-push
-      - prepare
+    needs: build-and-push
     permissions:
       contents: read
       security-events: write
@@ -134,11 +123,21 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Prep Image Name
+        id: prep
+        env:
+          D_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          D_REPO: ${{ secrets.DOCKERHUB_REPO }}
+        run: |
+          IMG="${D_USER}/${D_REPO}"
+          D_LC="${IMG,,}"
+          echo "docker_image_lc=${D_LC}" >> "$GITHUB_OUTPUT"
+
       - name: Extract metadata for image reference
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ needs.prepare.outputs.docker_image_lc }}
+          images: ${{ steps.prep.outputs.docker_image_lc }}
           tags: |
             type=semver,pattern={{version}}
 
@@ -152,7 +151,7 @@ jobs:
         uses: ./.github-template/.github/trivy
         with:
           scan-type: 'image'
-          image-ref: ${{ needs.prepare.outputs.docker_image_lc }}:${{ steps.meta.outputs.version || 'latest' }}
+          image-ref: ${{ steps.prep.outputs.docker_image_lc }}:${{ steps.meta.outputs.version || 'latest' }}
           output-prefix: 'trivy-image'
           artifact-name: 'trivy-image-reports'
 
