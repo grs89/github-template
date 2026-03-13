@@ -145,12 +145,18 @@ jobs:
           RAW_REGISTRY="${CTX_REGISTRY:-$DEFAULT_REGISTRY}"
           RAW_REPO="${CTX_REPO}"
           
-          # Convertir a minúsculas y quitar cualquier espacio/salto de línea accidental
-          IMAGE_NAME_LC=$(echo "${RAW_REGISTRY}/${RAW_REPO}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
-          DOCKER_IMAGE_LC=""
+          # Convertir a minúsculas nativamente y remover espacios
+          IMAGE_NAME_LC="${RAW_REGISTRY,,}/${RAW_REPO,,}"
+          IMAGE_NAME_LC="${IMAGE_NAME_LC// /}"
+          IMAGE_NAME_LC="${IMAGE_NAME_LC//$'\n'/}"
+          IMAGE_NAME_LC="${IMAGE_NAME_LC//$'\r'/}"
           
+          DOCKER_IMAGE_LC=""
           if [ -n "$CTX_DOCKER_USER" ] && [ -n "$CTX_DOCKER_REPO" ]; then
-            DOCKER_IMAGE_LC=$(echo "${CTX_DOCKER_USER}/${CTX_DOCKER_REPO}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+            DOCKER_IMAGE_LC="${CTX_DOCKER_USER,,}/${CTX_DOCKER_REPO,,}"
+            DOCKER_IMAGE_LC="${DOCKER_IMAGE_LC// /}"
+            DOCKER_IMAGE_LC="${DOCKER_IMAGE_LC//$'\n'/}"
+            DOCKER_IMAGE_LC="${DOCKER_IMAGE_LC//$'\r'/}"
           fi
           
           echo "image_name_lc=${IMAGE_NAME_LC}"     >> "$GITHUB_OUTPUT"

@@ -42,7 +42,10 @@ jobs:
           CTX_DOCKER_REPO: ${{ secrets.DOCKERHUB_REPO }}
         run: |
           RAW_DOCKER_IMAGE="${CTX_DOCKER_USER}/${CTX_DOCKER_REPO}"
-          DOCKER_IMAGE_LC=$(echo "$RAW_DOCKER_IMAGE" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
+          DOCKER_IMAGE_LC="${RAW_DOCKER_IMAGE,,}"
+          DOCKER_IMAGE_LC="${DOCKER_IMAGE_LC// /}"
+          DOCKER_IMAGE_LC="${DOCKER_IMAGE_LC//$'\n'/}"
+          DOCKER_IMAGE_LC="${DOCKER_IMAGE_LC//$'\r'/}"
           echo "docker_image_lc=${DOCKER_IMAGE_LC}" >> "$GITHUB_OUTPUT"
 
   build-and-push:
