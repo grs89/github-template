@@ -37,9 +37,12 @@ jobs:
     steps:
       - name: Lowercase image name
         id: lowercase
+        env:
+          CTX_DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          CTX_DOCKER_REPO: ${{ secrets.DOCKERHUB_REPO }}
         run: |
-          RAW_DOCKER_IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_REPO }}"
-          DOCKER_IMAGE_LC=$(echo "$RAW_DOCKER_IMAGE" | tr '[:upper:]' '[:lower:]')
+          RAW_DOCKER_IMAGE="${CTX_DOCKER_USER}/${CTX_DOCKER_REPO}"
+          DOCKER_IMAGE_LC=$(echo "$RAW_DOCKER_IMAGE" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
           echo "docker_image_lc=${DOCKER_IMAGE_LC}" >> "$GITHUB_OUTPUT"
 
   build-and-push:
