@@ -78,12 +78,22 @@ jobs:
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
 
+      - name: Determine Dockerfile
+        id: dockerfile
+        run: |
+          DOCKERFILE="${{ env.DOCKERFILE_PATH }}"
+          if [ ! -f "$DOCKERFILE" ] && [ -f "./Dockerfile" ]; then
+            echo "⚠️ Dockerfile no encontrado en $DOCKERFILE, usando fallback: ./Dockerfile"
+            DOCKERFILE="./Dockerfile"
+          fi
+          echo "path=${DOCKERFILE}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push Docker image
         id: build
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ${{ env.DOCKERFILE_PATH }}
+          file: ${{ steps.dockerfile.outputs.path }}
           platforms: ${{ env.PLATFORMS }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}

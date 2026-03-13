@@ -375,7 +375,13 @@ jobs:
               echo "☕ Usando Dockerfile.multistaged para Java en $JAVA_DOCKERFILE"
             fi
           fi
-          # Ensure path is relative if DOCKERFILE_PATH starts with ./
+          
+          # Fallback a raíz si el Dockerfile indicado no existe, pero hay uno en '.'
+          if [ ! -f "$DOCKERFILE" ] && [ -f "./Dockerfile" ]; then
+            echo "⚠️ Dockerfile no encontrado en $DOCKERFILE, usando fallback: ./Dockerfile"
+            DOCKERFILE="./Dockerfile"
+          fi
+          
           echo "path=${DOCKERFILE}" >> "$GITHUB_OUTPUT"
 
       - name: Extract metadata (tags, labels)
