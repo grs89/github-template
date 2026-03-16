@@ -1,0 +1,105 @@
+name: ⚡ PR Validation (CI)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-language:
+    name: 🔍 Detect Language
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      detected_lang: ${{ steps.detect.outputs.detected_lang }}
+      repo_lc:       ${{ steps.detect.outputs.repo_lc }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect language
+        id: detect
+        run: |
+          echo "🔍 Detectando lenguaje del proyecto para validación de PR..."
+          LANG="unknown"
+
+          if [ -f "go.mod" ]; then
+            LANG="go"
+          elif [ -f "pom.xml" ]; then
+            LANG="java-maven"
+          elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            LANG="java-gradle"
+          elif [ -f "package.json" ]; then
+            LANG="js"
+          elif [ -f "pyproject.toml" ] || [ -f "requirements.txt" ] || [ -f "setup.py" ]; then
+            LANG="python"
+          fi
+
+          echo "✅ Lenguaje: $LANG"
+          echo "detected_lang=${LANG}" >> "$GITHUB_OUTPUT"
+
+          RAW_REPO="${{ github.repository }}"
+          REPO_LC="${RAW_REPO,,}"
+          REPO_LC="${REPO_LC// /}"
+          REPO_LC="${REPO_LC//$'\n'/}"
+          REPO_LC="${REPO_LC//$'\r'/}"
+          echo "repo_lc=${REPO_LC}" >> "$GITHUB_OUTPUT"
+
+  lint-and-test:
+    name: 🧹 Lint & 🧪 Test
+    needs: detect-language
+    uses: ./.github/workflows/shared-lint-test.yml
+    with:
+      DETECTED_LANG: ${{ needs.detect-language.outputs.detected_lang }}
+      CONTEXT_DIR: '.'
+    secrets: inherit
+
+  trivy-sast:
+    name: 🔐 Trivy SAST (Fast Scan)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan (SARIF)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-fs-report.sarif'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+
+      - name: Run Trivy filesystem scan (summary)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'table'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+          output: 'trivy-fs-summary.txt'
+
+      - name: Write SAST Summary to Job DX
+        if: always()
+        run: |
+          echo "## 🔐 Resultado SAST Rápido (PR)" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          cat trivy-fs-summary.txt 2>/dev/null || echo "No se encontraron vulnerabilidades altas o críticas." >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-fs-report.sarif'
