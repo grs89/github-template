@@ -50,7 +50,7 @@ jobs:
           echo "docker_image_lc=${D_LC}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -112,10 +112,10 @@ jobs:
     
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Checkout Infra Actions
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ github.repository_owner }}/github-template
           path: .github-template
@@ -137,7 +137,7 @@ jobs:
     
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Prep Image Name
         id: prep
@@ -158,7 +158,7 @@ jobs:
             type=semver,pattern={{version}}
 
       - name: Checkout Infra Actions
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ github.repository_owner }}/github-template
           path: .github-template
