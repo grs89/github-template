@@ -50,6 +50,25 @@ jobs:
           severity: 'HIGH,CRITICAL'
           exit-code: '0'
 
+      - name: Run Trivy filesystem scan (summary)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '${{ inputs.CONTEXT_DIR }}'
+          format: 'table'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+          output: 'trivy-fs-summary.txt'
+
+      - name: Write SAST Summary to Job DX
+        if: always()
+        run: |
+          echo "## 🔐 Resultado SAST (Código Fuente)" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          cat trivy-fs-summary.txt 2>/dev/null || echo "No se encontraron vulnerabilidades altas o críticas." >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "📥 Revisa los reportes en la lengüeta **Security** o descarga los PDF al finalizar el pipeline." >> $GITHUB_STEP_SUMMARY
+
       - name: Upload SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
         if: always()
@@ -97,6 +116,15 @@ jobs:
           format: 'table'
           severity: 'HIGH,CRITICAL'
           exit-code: '0'
+          output: 'trivy-image-summary.txt'
+
+      - name: Write Image Scan Summary to Job DX
+        if: always()
+        run: |
+          echo "## 🐳 Resultado Escaneo de Imagen" >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          cat trivy-image-summary.txt 2>/dev/null || echo "No se encontraron vulnerabilidades altas o críticas." >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
 
       - name: Upload SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
@@ -119,8 +147,7 @@ jobs:
     permissions:
       contents: read
       security-events: write
-    # Solo ejecutar si se proporcionaron credenciales de Docker Hub
-    if: secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_REPO != ''
+    # Solo ejecutar si se proporcionaron credenciales de Docker Hub (se evalúa en el parseo)
     env:
       DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKER_REPO: ${{ secrets.DOCKERHUB_REPO }}
