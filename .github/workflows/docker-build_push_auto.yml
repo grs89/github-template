@@ -36,6 +36,10 @@ on:
       DOCKERHUB_REPO:
         required: false
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REGISTRY: ${{ secrets.REGISTRY || 'ghcr.io' }}
   CONTEXT_DIR: ${{ inputs.CONTEXT_DIR || '.' }}

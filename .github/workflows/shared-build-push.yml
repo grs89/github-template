@@ -103,6 +103,8 @@ jobs:
           context: .
           file: ${{ steps.dockerfile.outputs.path }}
           push: true
+          provenance: true
+          sbom: true
           platforms: ${{ inputs.PLATFORMS }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
