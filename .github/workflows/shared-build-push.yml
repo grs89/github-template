@@ -1,0 +1,150 @@
+name: Shared Build & Push
+
+on:
+  workflow_call:
+    inputs:
+      DETECTED_LANG:
+        required: true
+        type: string
+      IMAGE_TAG:
+        required: true
+        type: string
+      REPO_LC:
+        required: true
+        type: string
+      CONTEXT_DIR:
+        required: true
+        type: string
+      DOCKERFILE_PATH:
+        required: true
+        type: string
+      REGISTRY:
+        required: false
+        type: string
+        default: 'ghcr.io'
+      PLATFORMS:
+        required: false
+        type: string
+        default: 'linux/amd64,linux/arm64'
+    secrets:
+      REGISTRY_USER:
+        required: false
+      REGISTRY_PASSWORD:
+        required: false
+      COSIGN_PRIVATE_KEY:
+        required: false
+      COSIGN_PASSWORD:
+        required: false
+    outputs:
+      image_digest:
+        description: 'Digest de la imagen Docker publicada'
+        value: ${{ jobs.build-push.outputs.image_digest }}
+
+jobs:
+  build-push:
+    name: 🏗️ Build & Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USER || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+
+      - name: Determine Dockerfile
+        id: dockerfile
+        run: |
+          DOCKERFILE="${{ inputs.DOCKERFILE_PATH }}"
+          if [ "${{ inputs.DETECTED_LANG }}" = "java-maven" ] || [ "${{ inputs.DETECTED_LANG }}" = "java-gradle" ]; then
+            JAVA_DOCKERFILE="${{ inputs.CONTEXT_DIR }}/src/main/docker/Dockerfile.multistaged"
+            if [ -f "$JAVA_DOCKERFILE" ]; then
+              DOCKERFILE="$JAVA_DOCKERFILE"
+              echo "☕ Usando Dockerfile.multistaged para Java en $JAVA_DOCKERFILE"
+            fi
+          fi
+          
+          if [ ! -f "$DOCKERFILE" ] && [ -f "./Dockerfile" ]; then
+            echo "⚠️ Dockerfile no encontrado en $DOCKERFILE, usando fallback: ./Dockerfile"
+            DOCKERFILE="./Dockerfile"
+          fi
+          
+          echo "path=${DOCKERFILE}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.REGISTRY }}/${{ inputs.REPO_LC }}
+          tags: |
+            type=raw,value=${{ inputs.IMAGE_TAG }}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=ref,event=tag
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ steps.dockerfile.outputs.path }}
+          push: true
+          platforms: ${{ inputs.PLATFORMS }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image digest
+        run: |
+          echo "✅ Imagen publicada exitosamente."
+          echo "   Digest: ${{ steps.build.outputs.digest }}"
+
+  sign-image:
+    name: ✍️ Sign Image (Cosign)
+    runs-on: ubuntu-latest
+    needs: build-push
+    continue-on-error: true
+    permissions:
+      id-token: write
+      packages: write
+    env:
+      COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+      COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+      IMAGE_REF: ${{ inputs.REGISTRY }}/${{ inputs.REPO_LC }}@${{ needs.build-push.outputs.image_digest }}
+    steps:
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Log in to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USER || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+
+      - name: Sign image with private key
+        if: ${{ env.COSIGN_PRIVATE_KEY != '' }}
+        run: |
+          echo "🔏 Firmando imagen con clave privada..."
+          cosign sign --key env://COSIGN_PRIVATE_KEY "${IMAGE_REF}"
+
+      - name: Sign image keyless (OIDC / Sigstore)
+        if: ${{ env.COSIGN_PRIVATE_KEY == '' }}
+        run: |
+          echo "🔏 Firmando imagen (keyless OIDC - Sigstore)..."
+          cosign sign --yes "${IMAGE_REF}"

@@ -1,0 +1,245 @@
+name: Shared Security Scan
+
+on:
+  workflow_call:
+    inputs:
+      CONTEXT_DIR:
+        required: true
+        type: string
+      IMAGE_TAG:
+        required: true
+        type: string
+      REPO_LC:
+        required: true
+        type: string
+      REGISTRY:
+        required: false
+        type: string
+        default: 'ghcr.io'
+    secrets:
+      REGISTRY_USER:
+        required: false
+      REGISTRY_PASSWORD:
+        required: false
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
+      DOCKERHUB_REPO:
+        required: false
+
+jobs:
+  trivy-sast:
+    name: 🔐 Trivy SAST (filesystem)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '${{ inputs.CONTEXT_DIR }}'
+          format: 'sarif'
+          output: 'trivy-fs-report.sarif'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-fs-report.sarif'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-sast-report
+          path: trivy-fs-report.sarif
+          retention-days: 7
+
+  trivy-image-scan:
+    name: 🔎 Trivy Image Scan
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Log in to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USER || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+
+      - name: Run Trivy image scan (SARIF)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: '${{ inputs.REGISTRY }}/${{ inputs.REPO_LC }}:${{ inputs.IMAGE_TAG }}'
+          format: 'sarif'
+          output: 'trivy-image-report.sarif'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+
+      - name: Run Trivy image scan (table)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: '${{ inputs.REGISTRY }}/${{ inputs.REPO_LC }}:${{ inputs.IMAGE_TAG }}'
+          format: 'table'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-image-report.sarif'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-image-report
+          path: trivy-image-report.sarif
+          retention-days: 7
+
+  trivy-dockerhub-scan:
+    name: 🔎 Trivy Docker Hub Image Scan
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+      security-events: write
+    # Solo ejecutar si se proporcionaron credenciales de Docker Hub
+    if: secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_REPO != ''
+    env:
+      DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKER_REPO: ${{ secrets.DOCKERHUB_REPO }}
+    steps:
+      - name: Parse DOCKER_IMAGE lowercase
+        id: prep
+        run: |
+          DOCKER_IMAGE="${DOCKER_USER}/${DOCKER_REPO}"
+          D_LC="${DOCKER_IMAGE,,}"
+          echo "docker_image_lc=${D_LC}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Run Trivy image scan (SARIF)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: '${{ steps.prep.outputs.docker_image_lc }}:${{ inputs.IMAGE_TAG }}'
+          format: 'sarif'
+          output: 'trivy-dockerhub-report.sarif'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+
+      - name: Run Trivy image scan (table)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: '${{ steps.prep.outputs.docker_image_lc }}:${{ inputs.IMAGE_TAG }}'
+          format: 'table'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-dockerhub-report.sarif'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-dockerhub-report
+          path: trivy-dockerhub-report.sarif
+          retention-days: 7
+
+  generate-security-report:
+    name: 📄 Generate Security Report
+    needs:
+      - trivy-sast
+      - trivy-image-scan
+      - trivy-dockerhub-scan
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Trivy SAST report
+        uses: actions/download-artifact@v4
+        with:
+          name: trivy-sast-report
+        continue-on-error: true
+
+      - name: Download Trivy image report
+        uses: actions/download-artifact@v4
+        with:
+          name: trivy-image-report
+        continue-on-error: true
+
+      - name: Download Trivy Docker Hub report
+        uses: actions/download-artifact@v4
+        with:
+          name: trivy-dockerhub-report
+        continue-on-error: true
+
+      - name: Download coverage reports
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-reports
+        continue-on-error: true
+
+      - name: Rename SARIF files for generate_report.py detection
+        run: |
+          echo "🔄 Preparando archivos de reporte..."
+          [ -f trivy-fs-report.sarif       ] && cp trivy-fs-report.sarif       trivy-sast-report.json      || true
+          [ -f trivy-image-report.sarif     ] && cp trivy-image-report.sarif     trivy-report.json           || true
+          [ -f trivy-dockerhub-report.sarif ] && cp trivy-dockerhub-report.sarif trivy-dockerhub-report.json || true
+          echo "📂 Archivos disponibles:"
+          ls -lh *.json *.sarif 2>/dev/null || echo "  (ninguno encontrado)"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: pip install --quiet jinja2 weasyprint
+
+      - name: Run generate_report.py
+        run: |
+          echo "📊 Generando reporte de seguridad consolidado..."
+          python .github/utilidades/generate_report.py
+
+      - name: Upload HTML/PDF reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-report
+          path: |
+            security-report.html
+            security-report.pdf
+            *.html
+            *.pdf
+          retention-days: 30
+          if-no-files-found: ignore
