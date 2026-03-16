@@ -1,228 +1,171 @@
-# 🐳 GitHub Template - CI/CD Docker Pipeline
+# 🐳 GitHub Template - CI/CD DevSecOps Pipeline
 
-[![Build and Push Docker Image](https://github.com/YOUR_USERNAME/github-template/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/YOUR_USERNAME/github-template/actions/workflows/docker-publish.yml)
+[![Build, Push & Scan (Auto)](https://github.com/YOUR_USERNAME/github-template/actions/workflows/docker-build_push_auto.yml/badge.svg)](https://github.com/YOUR_USERNAME/github-template/actions/workflows/docker-build_push_auto.yml)
+[![PR Validation](https://github.com/YOUR_USERNAME/github-template/actions/workflows/pull-request-validation.yml/badge.svg)](https://github.com/YOUR_USERNAME/github-template/actions/workflows/pull-request-validation.yml)
 [![Security Scan](https://img.shields.io/badge/Security-Trivy-blue)](https://trivy.dev/)
 [![Docker](https://img.shields.io/badge/Docker-Multi--Arch-2496ED?logo=docker)](https://www.docker.com/)
 
-Template de repositorio GitHub con pipeline CI/CD preconfigurado para construcción y publicación de imágenes Docker multi-arquitectura con análisis de seguridad integrado.
+Plantilla de repositorio **Estado del Arte** para GitHub con pipelines CI/CD modulares, ultra rápidos y seguros. Diseñado para ofrecer una experiencia de desarrollador (DX) superior, compilaciones Docker multi-arquitectura optimizadas, Integración Continua en ramas efímeras y estándares completos de seguridad automatizada.
 
 ---
 
 ## 📋 Tabla de Contenidos
 
-- [Características](#-características)
-- [Arquitectura del Pipeline](#-arquitectura-del-pipeline)
+- [Características Destacadas](#-características-destacadas)
+- [Arquitectura Reutilizable (Workflows)](#-arquitectura-reutilizable-workflows)
 - [Requisitos Previos](#-requisitos-previos)
 - [Configuración Rápida](#-configuración-rápida)
-- [Uso](#-uso)
+- [Uso y Disparadores Automáticos](#-uso-y-disparadores-automáticos)
 - [Estructura del Proyecto](#-estructura-del-proyecto)
-- [Seguridad](#-seguridad)
-- [Personalización](#-personalización)
+- [Migración OIDC y Entornos](#-migración-oidc-y-entornos-avanzado)
 - [Licencia](#-licencia)
 
 ---
 
-## ✨ Características
+## ✨ Características Destacadas
 
-| 🏗️ **Build Multi-Arquitectura** | Soporte para `linux/amd64` y `linux/arm64` |
-| 🔐 **Análisis de Seguridad** | Escaneo con Trivy para código e imágenes |
-| 📦 **Docker Hub & GHCR** | Publicación automática en múltiples registros |
-| 🏷️ **Versionado Semántico** | Tags automáticos basados en `v*.*.*` |
-| 📁 **Soporte Subdirectorios** | Opción `CONTEXT_DIR` para proyectos no raíz |
-| 🔍 **Detección Automática** | Identifica lenguaje y Dockerfile automáticamente |
-| 📄 **Reportes PDF** | Generación automática de reportes de vulnerabilidades |
-| ⚡ **Cache Optimizado** | Cache de capas Docker para builds más rápidos |
+| 🚀 Tecnologías Modernas | Qué soluciona en tu proyecto |
+| --- | --- |
+| **Arquitectura Modular (`uses:`)** | Facilita el mantenimiento. Los flujos gigantes se dividieron en 3 bloques reutilizables (Lint/Test, Build/Push, y Security). |
+| **Continuous Integration Ágil** | El Action secundario **`pull-request-validation.yml`** escanea calidad de código y SAST en *segundos* al revisar PRs interceptando bugs antes de llegar a `main`. |
+| **Caché Avanzada (GHA)** | La compilación Docker usa el caché nativo de GitHub Actions ultrarápido en lugar de usar exportadores lentos al Registro Remoto. |
+| **SLSA Provenance & SBOM Nivel 3** | Las imágenes publicadas certifican automáticamente tus vulnerabilidades (SBOM, SPDX) y sus huellas digitales anticopia. |
+| **Auto-cancelación Redundante** | Utiliza reglas de `concurrency:` para abortar despliegues superpuestos en paralelo, ahorrando billes en minutos perdidos en la nube. |
+| **DX Nativo: Job Summaries** | Resultados de cobertura (`go test`, `jest`, etc) y vulnerabilidades se inyectan en Markdown nativo (`$GITHUB_STEP_SUMMARY`) por lo que no hace falta abrir ni descargar ZIP/PDFs para el desarrollador. |
+| **Dependabot Configurado** | Reglas activas para actualizar tus propias acciones y librerías base de Docker automáticamente de modo semanal. |
 
 ---
 
-## 🏛️ Arquitectura del Pipeline
+## 🏛️ Arquitectura Reutilizable (Workflows)
 
 ```mermaid
 flowchart TD
-    A[Push Tag v*.*.*] --> B{GitHub Actions}
-    B --> C[Build & Push]
-    B --> D[Trivy Code Scan]
-    C --> E[Trivy Image Scan]
-    
-    subgraph Shared [Reusability]
-        CA((".github/trivy/action.yml<br/>(Composite Action)"))
+    A[Push a un Tag v*.*.*] --> B{docker-build_push_auto.yml<br/>(Orquestador Principal)}
+    PR[Abres Pull Request] --> PRV{pull-request-validation.yml<br/>(Orquestador Ligero)}
+
+    subgraph "Workflows Específicos de Negocio (CD)"
+        B -->|Paso 1: Detectar Lenguaje| B
+        B -->|Paso 2: uses| C(shared-lint-test.yml)
+        B -->|Paso 3: uses| D(shared-build-push.yml)
+        B -->|Paso 4: uses| E(shared-security-scan.yml)
     end
 
-    D -.-> |Uses| CA
-    E -.-> |Uses| CA
+    subgraph "Validación Ágil para Desarrolladores (CI)"
+        PRV -->|Paso 1: usa| C
+        PRV -->|Paso 2: Análisis rápido| SAST[trivy-sast]
+    end
     
-    C --> F[("🐳 Docker Hub<br/>Multi-Arch Image")]
-    D --> G["📄 reports/trivy-fs<br/>(Summary + Full PDF)"]
-    E --> H["📄 reports/trivy-image<br/>(Summary + Full PDF)"]
-    
-    style A fill:#4CAF50,color:#fff
-    style CA fill:#9C27B0,color:#fff
-    style F fill:#2496ED,color:#fff
-    style G fill:#FF9800,color:#fff
-    style H fill:#FF9800,color:#fff
+    C -.-> |Imprime Job Summary Cobertura| JS1[UI de GitHub GITHUB_STEP_SUMMARY]
+    E -.-> |Imprime Job Summary Seguridad| JS1
+    SAST -.-> |Imprime Job Summary SAST| JS1
+    D --> |Firma Cosign + SLSA| DOC[Docker Hub y GHCR]
 ```
 
-### Jobs del Workflow
+### Orquestadores vs Flujos Compartidos
 
-| Job | Descripción | Dependencias |
-|-----|-------------|--------------|
-| `build-and-push` | Construye y publica la imagen multi-arquitectura | Ninguna |
-| `trivy-code-scan` | Analiza vulnerabilidades en el código fuente | Ninguna |
-| `trivy-image-scan` | Analiza vulnerabilidades en la imagen Docker | `build-and-push` |
+- **Orquestadores:** Son los archivos que interceptan el evento del usuario (crear un PR o subir un tag de versión). Interrogan el lenguaje del proyecto (`go.mod`, `pom.xml`, `package.json`) y llaman a los flujos siguientes según corresponda. Su rol es únicamente decidir y pasar datos.
+- **`shared-*.yml`:** Tienen toda la carne de ejecución por dentro sin saber quién los activa. Permite que múltiples microservicios u otros repositorios apunten a este repositorio base unificando infraestructuras de tu organización.
 
 ---
 
 ## 📋 Requisitos Previos
 
-- Cuenta de [Docker Hub](https://hub.docker.com/)
+- Cuenta de [Docker Hub](https://hub.docker.com/) o GHCR.
 - Repositorio GitHub
-- `Dockerfile` en la raíz del proyecto
+- Archivo o paquete rastreable en la raíz del proyecto para la detección `[go.mod, package.json, pom.xml, etc]`. Para casos custom, crear un archivo `version.yml`.
 
 ---
 
 ## ⚡ Configuración Rápida
 
-### 1️⃣ Usar este Template
+### 1️⃣ Inicializar
+1. Haz clic en **"Use this template"** en GitHub en el panel superior para instanciar tu copia operativa.
 
-1. Haz clic en **"Use this template"** en GitHub
-2. Crea un nuevo repositorio
-
-### 2️⃣ Configurar Secrets
-
+### 2️⃣ Secretos Clásicos o Standard
 Navega a **Settings → Secrets and variables → Actions** y añade:
 
-| Secret | Descripción |
+| Secret (Variable de GitHub) | Descripción |
 |--------|-------------|
-| `DOCKERHUB_USERNAME` | Tu nombre de usuario de Docker Hub |
-| `DOCKERHUB_TOKEN` | Token de acceso de Docker Hub |
-
-> 💡 **Tip:** Genera un token de acceso en [Docker Hub Security Settings](https://hub.docker.com/settings/security)
-
-### 3️⃣ Personalizar el Workflow
-
-Edita `.github/workflows/docker-publish.yml`:
-
-```yaml
-env:
-  DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/tu-imagen
-  PLATFORMS: linux/amd64,linux/arm64
-```
+| `DOCKERHUB_USERNAME` | Tu nombre de usuario público |
+| `DOCKERHUB_TOKEN` | Token de acceso (Generado en Docker Hub Security) |
+| `DOCKERHUB_REPO` | El container de destino, ej. `mi-app-back` |
 
 ---
 
-## 🚀 Uso
+## 🚀 Uso y Disparadores Automáticos
 
-### Trigger Automático
+### 1. Desarrollo Continuo y Review de Pull Requests
 
-El pipeline se ejecuta automáticamente al hacer push de un tag de versión:
+Cuando tu equipo abra un Pull Request desde una rama (e.g. `feat/nueva-base`), el workflow ultra rápido de `pull-request-validation.yml` se activará en pocos segundos:
+1. Validará el formateo/linter de tu código.
+2. Correrá las pruebas unitarias e imprimirá la **Cobertura** directamente a tu pantalla de Actions de GH.
+3. Buscará credenciales o vulnerabilidades estáticas quemadas en tus ramas (SAST - Trivy) también pintando la solución en Markdown.
+*💡 Si empujas nuevos commits velozmente a esta rama, los workflows de Actions previos se cancelarán automáticamente liberando recursos de cómputo.*
+
+### 2. Disparo a Producción (Tags Semánticos)
+
+Crea un tag con versión de software en la base de la rama principal:
 
 ```bash
-# Crear y publicar un tag
 git tag v1.0.0
 git push origin v1.0.0
 ```
 
-### Trigger Manual
-
-También puedes ejecutar el workflow manualmente desde la pestaña **Actions** en GitHub.
-
-### Reusable Workflow (Recomendado)
-
-Si deseas usar este pipeline en otro repositorio como un workflow reutilizable:
-
-```yaml
-jobs:
-  deploy:
-    uses: grs89/github-template/.github/workflows/docker-build_push_auto.yml@v2
-    with:
-      CONTEXT_DIR: '.'  # Opcional: directorio si el código no está en la raíz
-    secrets: inherit    # Hereda secretos del repo (DOCKERHUB_*, REGISTRY_*)
-```
-
-### Tags Generados
-
-Para un push de `v1.2.3`, se crean los siguientes tags:
-
-| Tag | Ejemplo |
-|-----|---------|
-| Versión completa | `1.2.3` |
-| Major.Minor | `1.2` |
-| Major | `1` |
-| SHA corto | `sha-abc1234` |
-| Latest | `latest` (solo en rama por defecto) |
+Se activará el orquestador principal (`docker-build_push_auto.yml`), llamando a todas las tuberías de validación, procediendo por fin con la construcción Multi-Arquitectura veloz usando caché GHA, añadiendo una certificación **SLSA de Nivel 3 y SBOM transparente**, finalizando por publicar tus contenedores con tu firma in-toto/Cosign anexada.
 
 ---
 
 ## 📁 Estructura del Proyecto
 
-```
+```text
 github-template/
 ├── .github/
+│   ├── dependabot.yml                      # Actualizador automático de Actions y base Docker (Semanal)
 │   ├── trivy/
-│   │   └── action.yml            # Composite Action de seguridad
-│   └── workflows/
-│       ├── docker-publish.yml    # Pipeline para tags (Docker Hub)
-│       └── docker-build_push_auto.yml # Pipeline automático (v2)
-├── Dockerfile                     # Tu Dockerfile (auto-detectado)
-├── .dockerignore                  # Archivos a excluir del build
-└── README.md                      # Este archivo
+│   │   └── action.yml                      # Composite Action estándar
+│   ├── workflows/
+│   │   ├── docker-build_push_auto.yml      # ** Orquestador CD principal (Para Tags)
+│   │   ├── docker-publish.yml              # Variación antigua de Docker simple
+│   │   ├── pull-request-validation.yml     # ** Orquestador CI ultra rápido (Para ramas PR)
+│   │   ├── shared-build-push.yml           # Bloque REUTILIZABLE para Docker, GHA Cache y SBOM SLSA
+│   │   ├── shared-lint-test.yml            # Bloque REUTILIZABLE para calidad y DX Cobertura visual
+│   │   └── shared-security-scan.yml        # Bloque REUTILIZABLE para Escáner final 
+├── src/ o app/                             # Tu código de aplicación
+├── Dockerfile                              # Tu receta Docker
+└── README.md                               # <-- Usted está aquí
 ```
 
 ---
 
-## 🔐 Seguridad
+## 🔐 Migración OIDC y Entornos (Avanzado)
 
-### Escaneo via Composite Action
+Para elevar tu seguridad al extremo en proyectos empresariales grandes:
 
-Este template utiliza una **GitHub Composite Action** personalizada (`.github/trivy/action.yml`) para estandarizar el proceso de escaneo y reporte.
+### Zero-Trust mediante AWS/Azure/GCP (Sin secretos fijos)
 
-### Escaneo de Código e Imagen
+Este template soporta federación de identidad `OpenID Connect` porque todos los roles tienen `id-token: write` por defecto. Si requieres publicar no a Docker Hub sino a contenedores privados en la nube como una instancia Elastic Container Registry (AWS ECR):
 
-1. **Code Scan**: Analiza el repositorio en busca de vulnerabilidades en dependencias y secretos.
-2. **Image Scan**: Analiza la imagen Docker construida en busca de vulnerabilidades del SO y paquetes.
-
-### Reportes Generados
-
-Para cada escaneo, se generan y suben como **Artifacts**:
-
-- 📄 **Summary PDF**: Resumen ejecutivo con gráficas y conteo de vulnerabilidades.
-- 📄 **Full Report PDF**: Detalle técnico completo de cada hallazgo.
-- 📊 **GitHub Step Summary**: Resumen rápido visible directamente en el workflow run.
-
-| Severidad | Prioridad |
-|-----------|-----------|
-| 🔴 CRITICAL | Requiere acción inmediata |
-| 🟠 HIGH | Alta prioridad |
-| 🟡 MEDIUM | Prioridad media |
-| 🟢 LOW | Baja prioridad |
-
----
-
-## ⚙️ Personalización
-
-### Cambiar Plataformas
+Dirígete a `shared-build-push.yml` y antes de usar tu plugin de login normal, asume un rol usando tu Amazon ARN. Así removerás cualquier `AWS_ACCESS_KEY_ID` estática expuesta a ser robada:
 
 ```yaml
-env:
-  PLATFORMS: linux/amd64,linux/arm64,linux/arm/v7
+- name: 🔐 Configure AWS Credentials OIDC
+  uses: aws-actions/configure-aws-credentials@v4
+  with:
+    role-to-assume: arn:aws:iam::1234567890:role/MiGithubActionsRoles
+    aws-region: us-east-1
 ```
 
-### Cambiar Severidades del Escaneo
+### GitHub Environments para interrupción manual
+Si requieres que un manager aplique su firma o botón antes de permitir construir un Docker Multi Arch (para evitar sobrescribir producción), navega al repositorio Orquestador y declara tu ambiente al nivel del llamado al `build-and-push`:
 
 ```yaml
-severity: 'CRITICAL,HIGH'  # Solo vulnerabilidades críticas y altas
-```
-
-### Ajustar Retención de Reportes
-
-```yaml
-retention-days: 90  # Mantener reportes por 90 días
-```
-
-### Fallar en Vulnerabilidades
-
-```yaml
-exit-code: '1'  # El job fallará si encuentra vulnerabilidades
+  build-and-push:
+    name: 🏗️ Build, Push & Sign
+    needs: [detect-language, lint-and-test]
+    uses: ./.github/workflows/shared-build-push.yml
+    environment: production   # <-- REQUERIRA UN MANAGER DANDO CLICK EN 'REVIEW' DESDE GITHUB UI
+    with:
+      #...
 ```
 
 ---
@@ -235,8 +178,8 @@ Este proyecto está bajo la Licencia MIT. Consulta el archivo [LICENSE](LICENSE)
 
 <div align="center">
 
-**[⬆ Volver arriba](#-github-template---cicd-docker-pipeline)**
+**[⬆ Volver arriba](#-github-template---cicd-devsecops-pipeline)**
 
-Hecho con ❤️ para la comunidad DevOps
+Escrito y refactorizado a la altura del Arte para infraestructuras DevSecOps robustas. ❤️
 
 </div>
