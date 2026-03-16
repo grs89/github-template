@@ -57,7 +57,7 @@ jobs:
           sarif_file: 'trivy-fs-report.sarif'
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: trivy-sast-report
@@ -105,7 +105,7 @@ jobs:
           sarif_file: 'trivy-image-report.sarif'
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: trivy-image-report
@@ -164,7 +164,7 @@ jobs:
           sarif_file: 'trivy-dockerhub-report.sarif'
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: trivy-dockerhub-report
@@ -232,7 +232,7 @@ jobs:
           python .github/utilidades/generate_report.py
 
       - name: Upload HTML/PDF reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: security-report
