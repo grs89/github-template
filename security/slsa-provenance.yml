@@ -1,0 +1,24 @@
+name: SLSA Provenance
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  provenance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate SLSA Provenance
+        uses: slsa-framework/slsa-github-generator@v1
+        with:
+          base64-subjects: ${{ inputs.image }}
+          upload-assets: true

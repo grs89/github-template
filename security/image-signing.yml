@@ -1,0 +1,27 @@
+name: Image Signing
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign image
+        run: |
+          cosign sign ${{ inputs.image }}
+        env:
+          COSIGN_EXPERIMENTAL: true

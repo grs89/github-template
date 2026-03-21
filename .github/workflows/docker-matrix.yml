@@ -1,0 +1,100 @@
+name: 🧩 Docker Matrix (BuildKit + Matrix)
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ${{ secrets.REGISTRY || 'ghcr.io' }}
+  PLATFORMS: ${{ vars.DOCKER_PLATFORMS || 'linux/amd64,linux/arm64' }}
+  DOCKER_MATRIX_DISABLED: ${{ vars.DOCKER_MATRIX_DISABLED || 'false' }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  detect-services:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect Dockerfiles
+        id: detect
+        run: |
+          if [ "${{ env.DOCKER_MATRIX_DISABLED }}" = "true" ]; then
+            echo "matrix={\"service\":[\".\"]}" >> $GITHUB_OUTPUT
+          else
+            SERVICES=$(find . -name "Dockerfile" -type f | xargs dirname | jq -R -s -c 'split("\n") | map(select(. != "")) | map({service: .})')
+            if [ -z "$SERVICES" ] || [ "$SERVICES" = "[]" ]; then
+              echo "matrix={\"service\":[\".\"]}" >> $GITHUB_OUTPUT
+            else
+              echo "matrix=$SERVICES" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+  build-matrix:
+    needs: detect-services
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.detect-services.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.service }}
+          tags: |
+            type=ref,event=tag
+            type=sha
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.service }}
+          file: ${{ matrix.service }}/Dockerfile
+          platforms: ${{ env.PLATFORMS }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          sbom: true
+          provenance: true
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.service}}
+
+  security-scan:
+    needs: build-matrix
+    uses: ./.github/workflows/shared-security-scan.yml
+    with:
+      image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.sha }}
+
+  executive-report:
+    needs: security-scan
+    uses: ./.github/workflows/executive-report.yml

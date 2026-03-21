@@ -1,0 +1,47 @@
+name: 📊 Executive Report
+
+on:
+  workflow_call:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r utilidades/requirements.txt
+
+      - name: Generate Executive Dashboard
+        run: |
+          python utilidades/generate_report.py
+
+      - name: Upload HTML Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: executive-dashboard
+          path: utilidades/dashboard.html
+
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: utilidades/
+          publish_branch: gh-pages
+
+      - name: Create Summary
+        run: |
+          echo "## 📊 Executive Dashboard Generated" >> $GITHUB_STEP_SUMMARY
+          echo "View the full report: [HTML Dashboard](https://YOUR_USERNAME.github.io/github-template/dashboard.html)" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,133 @@
+name: 🐳 Docker BRK (BuildKit Premium)
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      CONTEXT_DIR:
+        description: 'Directorio del código fuente'
+        required: false
+        default: '.'
+        type: string
+      DOCKERFILE_PATH:
+        description: 'Ruta al Dockerfile'
+        required: false
+        default: './Dockerfile'
+        type: string
+
+env:
+  REGISTRY: ${{ secrets.REGISTRY || 'ghcr.io' }}
+  CONTEXT_DIR: ${{ inputs.CONTEXT_DIR || '.' }}
+  DOCKERFILE_PATH: ${{ inputs.DOCKERFILE_PATH || './Dockerfile' }}
+  PLATFORMS: ${{ vars.DOCKER_PLATFORMS || 'linux/amd64,linux/arm64' }}
+  IMAGE_NAME: ${{ vars.IMAGE_NAME || github.event.repository.name }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      language: ${{ steps.detect.outputs.language }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect Language
+        id: detect
+        run: |
+          if [ -f "pom.xml" ]; then
+            echo "language=java" >> $GITHUB_OUTPUT
+          elif [ -f "package.json" ]; then
+            echo "language=javascript" >> $GITHUB_OUTPUT
+          elif [ -f "requirements.txt" ] || [ -f "pyproject.toml" ]; then
+            echo "language=python" >> $GITHUB_OUTPUT
+          else
+            echo "language=unknown" >> $GITHUB_OUTPUT
+          fi
+
+  check:
+    needs: detect
+    uses: ./.github/workflows/shared-lint-test.yml
+    with:
+      language: ${{ needs.detect.outputs.language }}
+
+  build:
+    needs: [detect, check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            type=sha
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ env.CONTEXT_DIR }}
+          file: ${{ env.DOCKERFILE_PATH }}
+          platforms: ${{ env.PLATFORMS }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          sbom: true
+          provenance: true
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME}}
+
+  security:
+    needs: build
+    uses: ./.github/workflows/shared-security-scan.yml
+    with:
+      image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+  cleanup:
+    needs: security
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Clean up build cache
+        run: |
+          echo "Cleanup completed"
+
+  report:
+    needs: [security, cleanup]
+    uses: ./.github/workflows/executive-report.yml
+
+  commit:
+    needs: report
+    runs-on: ubuntu-latest
+    steps:
+      - name: Commit changes
+        run: |
+          echo "Commit step"

@@ -1,0 +1,23 @@
+FROM ubuntu:22.04
+
+# Install security tools
+RUN apt-get update && apt-get install -y \
+    curl \
+    wget \
+    jq \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Cosign
+RUN curl -L https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o /usr/local/bin/cosign \
+    && chmod +x /usr/local/bin/cosign
+
+# Install Crane
+RUN curl -L https://github.com/google/go-containerregistry/releases/latest/download/go-containerregistry_Linux_x86_64.tar.gz \
+    | tar -xz -C /usr/local/bin crane
+
+# Install Trivy
+RUN wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add - \
+    && echo "deb https://aquasecurity.github.io/trivy-repo/deb jammy main" | tee -a /etc/apt/sources.list.d/trivy.list \
+    && apt-get update && apt-get install -y trivy
+
+CMD ["bash"]
