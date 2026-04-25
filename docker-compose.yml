@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  # Main application service
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: github-template-app
+    environment:
+      - APP_ENV=development
+      - APP_DEBUG=true
+      - APP_LOG_LEVEL=DEBUG
+      - REGISTRY_URL=ghcr.io
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - /app/__pycache__
+    networks:
+      - template-network
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # PostgreSQL Database (optional, for testing)
+  postgres:
+    image: postgres:15-alpine
+    container_name: github-template-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-app_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - template-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache (optional, for caching/sessions)
+  redis:
+    image: redis:7-alpine
+    container_name: github-template-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - template-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # Trivy Scanner (security scanning)
+  trivy:
+    image: aquasec/trivy:latest
+    container_name: github-template-trivy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./trivy_cache:/root/.cache/trivy
+    networks:
+      - template-network
+    command: server --listen 0.0.0.0:8080
+
+volumes:
+  postgres_data:
+    name: github-template-postgres-data
+  redis_data:
+    name: github-template-redis-data
+
+networks:
+  template-network:
+    name: github-template-network
+    driver: bridge

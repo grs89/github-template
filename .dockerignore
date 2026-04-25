@@ -1,0 +1,156 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Source control
+.github
+.gitlab-ci.yml
+.travis.yml
+
+# CI/CD
+.circleci
+.drone.yml
+jenkinsfile
+azure-pipelines.yml
+
+# Documentation
+docs/
+doc/
+*.md
+mkdocs.yml
+README.md
+CHANGELOG.md
+LICENSE
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+
+# Development
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.env
+.env.local
+.env.*.local
+*.sublime-project
+*.sublime-workspace
+.project
+.pydevproject
+.settings/
+*.iml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+htmlcov/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+dist/
+build/
+
+# Node (if applicable)
+node_modules/
+npm-debug.log
+yarn-error.log
+.npm
+package-lock.json
+yarn.lock
+
+# Testing
+test/
+tests/
+*_test.py
+test_*.py
+.pytest_cache/
+htmlcov/
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+terraform.tfvars
+*.tfvars
+
+# Kubernetes
+kubeconfig
+.kube/
+
+# Docker
+.dockerignore
+Dockerfile.*
+docker-compose*.yml
+docker-compose*.yaml
+
+# IDE and editor files
+.editorconfig
+.prettierrc
+.eslintrc
+.pylintrc
+.flake8
+
+# Local configuration
+local.conf
+config.local.*
+settings.local.py
+
+# Reports
+reports/
+*.html
+test-results.xml
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+.tmp/
+*.log
+
+# OS files
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# Archives
+*.zip
+*.tar.gz
+*.rar
+
+# Secrets
+*.pem
+*.key
+*.crt
+*.pfx
+secrets.yaml
+credentials.json
+
+# Build artifacts
+*.o
+*.a
+*.out

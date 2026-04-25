@@ -1,0 +1,142 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Testing
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+htmlcov/
+
+# Static files
+staticfiles/
+*.log
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.env
+.env.local
+.env.*.local
+*.sublime-project
+*.sublime-workspace
+
+# IDE specific files
+.project
+.pydevproject
+.settings/
+*.iml
+
+# Docker
+.docker
+docker-compose.override.yml
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.tfvars
+.tfvars
+*.tfvars
+
+# Kubernetes
+kubeconfig
+.kube/
+
+# Git
+.git/
+.gitkeep
+
+# Node (if applicable)
+node_modules/
+npm-debug.log
+yarn-error.log
+.npm
+package-lock.json
+yarn.lock
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.out
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# Secrets and credentials (never commit these)
+*.pem
+*.key
+*.crt
+*.pfx
+secrets.yaml
+credentials.json
+.aws/credentials
+.ssh/
+
+# Local configuration
+local.conf
+config.local.*
+settings.local.py
+
+# Reports
+reports/
+*.html
+test-results.xml
+
+# Temporary files
+tmp/
+temp/
+*.tmp
