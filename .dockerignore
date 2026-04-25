@@ -4,7 +4,6 @@
 .gitattributes
 
 # Source control
-.github
 .gitlab-ci.yml
 .travis.yml
 
@@ -14,16 +13,12 @@
 jenkinsfile
 azure-pipelines.yml
 
-# Documentation
+# Documentation (keep essential files, exclude non-essential)
 docs/
 doc/
-*.md
 mkdocs.yml
-README.md
-CHANGELOG.md
-LICENSE
-CONTRIBUTING.md
-CODE_OF_CONDUCT.md
+*.md
+!README.md
 
 # Development
 .vscode/

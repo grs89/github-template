@@ -36,8 +36,8 @@ USER appuser
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD python -c "import sys; sys.exit(0)" || exit 1
+    CMD python -c "import sys; sys.exit(0)"
 
 # Entrypoint
-ENTRYPOINT ["python"]
+ENTRYPOINT ["python", "-u"]
 CMD ["generate_report.py"]
