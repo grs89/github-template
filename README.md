@@ -40,25 +40,24 @@ Plantilla de repositorio **Estado del Arte** para GitHub con pipelines CI/CD mod
 
 ```mermaid
 flowchart TD
-    A[Push a un Tag v*.*.*] --> B{docker-build_push_auto.yml<br/>(Orquestador Principal)}
-    PR[Abres Pull Request] --> PRV{pull-request-validation.yml<br/>(Orquestador Ligero)}
+    A["🏷️ Push Tag v1.0.0"] --> B{"docker-build_push_auto.yml<br/>Orquestador Principal"}
+    PR["📝 Pull Request"] --> PRV{"pull-request-validation.yml<br/>Orquestador Ligero"}
 
-    subgraph "Workflows Específicos de Negocio (CD)"
-        B -->|Paso 1: Detectar Lenguaje| B
-        B -->|Paso 2: uses| C(shared-lint-test.yml)
-        B -->|Paso 3: uses| D(shared-build-push.yml)
-        B -->|Paso 4: uses| E(shared-security-scan.yml)
+    subgraph CD["Workflows Negocio: CD"]
+        B -->|1. Detectar Lenguaje| C["shared-lint-test.yml"]
+        B -->|2. Build| D["shared-build-push.yml"]
+        B -->|3. Security| E["shared-security-scan.yml"]
     end
 
-    subgraph "Validación Ágil para Desarrolladores (CI)"
-        PRV -->|Paso 1: usa| C
-        PRV -->|Paso 2: Análisis rápido| SAST[trivy-sast]
+    subgraph CI["Validacion Agil: CI"]
+        PRV -->|1. Lint/Test| C
+        PRV -->|2. SAST| SAST["trivy-sast scan"]
     end
     
-    C -.-> |Imprime Job Summary Cobertura| JS1[UI de GitHub GITHUB_STEP_SUMMARY]
-    E -.-> |Imprime Job Summary Seguridad| JS1
-    SAST -.-> |Imprime Job Summary SAST| JS1
-    D --> |Firma Cosign + SLSA| DOC[Docker Hub y GHCR]
+    C -->|Job Summary| JS1["GitHub Actions UI"]
+    E -->|Job Summary| JS1
+    SAST -->|Job Summary| JS1
+    D --> F["Docker Hub + GHCR<br/>Firma Cosign + SLSA"]
 ```
 
 ### Orquestadores vs Flujos Compartidos
