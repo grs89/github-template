@@ -19,7 +19,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run lint
         working-directory: ${{ inputs.CONTEXT_DIR }}
@@ -63,7 +63,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up JDK 21 (Java)
         if: ${{ startsWith(inputs.DETECTED_LANG, 'java') }}
