@@ -132,4 +132,4 @@ jobs:
       REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-      DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_REPO || needs.detect-language.outputs.repo_lc }}
+      DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_REPO }}
