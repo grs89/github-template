@@ -92,7 +92,7 @@ jobs:
   lint-and-test:
     name: 🧹 Lint & 🧪 Test
     needs: detect-language
-    uses: ./.github/workflows/shared-lint-test.yml
+    uses: grs89/github-template/.github/workflows/shared-lint-test.yml@v2
     with:
       DETECTED_LANG: ${{ needs.detect-language.outputs.detected_lang }}
       CONTEXT_DIR: ${{ inputs.CONTEXT_DIR || '.' }}
@@ -103,7 +103,7 @@ jobs:
     needs: 
       - detect-language
       - lint-and-test
-    uses: ./.github/workflows/shared-build-push.yml
+    uses: grs89/github-template/.github/workflows/shared-build-push.yml@v2
     with:
       DETECTED_LANG: ${{ needs.detect-language.outputs.detected_lang }}
       IMAGE_TAG: ${{ needs.detect-language.outputs.image_tag }}
@@ -121,7 +121,7 @@ jobs:
     needs:
       - detect-language
       - build-and-push
-    uses: ./.github/workflows/shared-security-scan.yml
+    uses: grs89/github-template/.github/workflows/shared-security-scan.yml@v2
     with:
       CONTEXT_DIR: ${{ inputs.CONTEXT_DIR || '.' }}
       IMAGE_TAG: ${{ needs.detect-language.outputs.image_tag }}
