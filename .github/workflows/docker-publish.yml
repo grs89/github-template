@@ -29,12 +29,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: write
-  packages: write
-  id-token: write
-  security-events: write
-
 jobs:
   detect-language:
     name: 🔍 Detect Language & Context
