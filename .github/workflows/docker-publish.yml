@@ -51,6 +51,8 @@ jobs:
 
       - name: Detect language and prepare metadata
         id: detect
+        env:
+          DH_REPO: ${{ secrets.DOCKERHUB_REPO }}
         run: |
           echo "🔍 Detectando lenguaje del proyecto..."
           LANG="unknown"
@@ -71,7 +73,14 @@ jobs:
           RAW_REPO="${{ github.repository }}"
           REPO_LC="${RAW_REPO,,}"
           REPO_LC="${REPO_LC// /}"
-          echo "repo_lc=${REPO_LC}" >> "$GITHUB_OUTPUT"
+          
+          if [ -n "$DH_REPO" ]; then
+            # Convertir el repositorio de Docker Hub provisto a minúsculas
+            DH_REPO_LC="${DH_REPO,,}"
+            echo "repo_lc=${DH_REPO_LC// /}" >> "$GITHUB_OUTPUT"
+          else
+            echo "repo_lc=${REPO_LC}" >> "$GITHUB_OUTPUT"
+          fi
 
           if [ "${{ github.event_name }}" = "push" ] && [[ "${{ github.ref }}" == refs/tags/* ]]; then
             TAG="${{ github.ref_name }}"
@@ -98,7 +107,7 @@ jobs:
     with:
       DETECTED_LANG: ${{ needs.detect-language.outputs.detected_lang }}
       IMAGE_TAG: ${{ needs.detect-language.outputs.image_tag }}
-      REPO_LC: ${{ secrets.DOCKERHUB_REPO || needs.detect-language.outputs.repo_lc }}
+      REPO_LC: ${{ needs.detect-language.outputs.repo_lc }}
       CONTEXT_DIR: ${{ inputs.CONTEXT_DIR || '.' }}
       DOCKERFILE_PATH: ${{ inputs.DOCKERFILE_PATH || './Dockerfile' }}
       REGISTRY: 'docker.io'
@@ -116,7 +125,7 @@ jobs:
     with:
       CONTEXT_DIR: ${{ inputs.CONTEXT_DIR || '.' }}
       IMAGE_TAG: ${{ needs.detect-language.outputs.image_tag }}
-      REPO_LC: ${{ secrets.DOCKERHUB_REPO || needs.detect-language.outputs.repo_lc }}
+      REPO_LC: ${{ needs.detect-language.outputs.repo_lc }}
       REGISTRY: 'docker.io'
     secrets:
       REGISTRY_USER: ${{ secrets.DOCKERHUB_USERNAME }}
