@@ -131,10 +131,19 @@ local.conf
 config.local.*
 settings.local.py
 
-# Reports
+# Reports & Security Scans
 reports/
 *.html
+*.pdf
+*.sarif
+*-report.json
+*report.json
+*scanning.json
+*compliance.json
+dependency_scanning.json
+trivy-*-summary.txt
 test-results.xml
+test-results.json
 
 # Temporary files
 tmp/
