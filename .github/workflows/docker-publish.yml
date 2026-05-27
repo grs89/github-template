@@ -69,12 +69,14 @@ jobs:
           REPO_LC="${RAW_REPO,,}"
           REPO_LC="${REPO_LC// /}"
           
-          if [ -n "$DH_REPO" ]; then
+          if echo "$DH_REPO" | grep -q '[[:alnum:]]'; then
             # Convertir el repositorio de Docker Hub provisto a minúsculas
             DH_REPO_LC="${DH_REPO,,}"
             echo "repo_lc=${DH_REPO_LC// /}" >> "$GITHUB_OUTPUT"
+            echo "DEBUG: Usando DOCKERHUB_REPO provisto: ${DH_REPO_LC// /}"
           else
             echo "repo_lc=${REPO_LC}" >> "$GITHUB_OUTPUT"
+            echo "DEBUG: DOCKERHUB_REPO vacio o no provisto. Usando fallback: ${REPO_LC}"
           fi
 
           if [ "${{ github.event_name }}" = "push" ] && [[ "${{ github.ref }}" == refs/tags/* ]]; then
