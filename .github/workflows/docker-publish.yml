@@ -1,7 +1,6 @@
 name: Build and Push Docker Image
 
 on:
-
   workflow_call:
     inputs:
       CONTEXT_DIR:
@@ -21,8 +20,6 @@ on:
         required: true
       DOCKERHUB_REPO:
         required: true
-
-
   push:
     tags:
       - 'v*.*.*'
@@ -32,146 +29,98 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  CONTEXT_DIR: ${{ inputs.CONTEXT_DIR || '.' }}
-  DOCKERFILE_PATH: ${{ inputs.DOCKERFILE_PATH || './Dockerfile' }}
-  PLATFORMS: linux/amd64,linux/arm64
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  security-events: write
 
 jobs:
-  build-and-push:
+  detect-language:
+    name: 🔍 Detect Language & Context
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: read
+    outputs:
+      detected_lang: ${{ steps.detect.outputs.detected_lang }}
+      repo_lc:       ${{ steps.detect.outputs.repo_lc }}
+      image_tag:     ${{ steps.detect.outputs.image_tag }}
     steps:
-      - name: Prep Image Name
-        id: prep
-        env:
-          D_USER: ${{ secrets.DOCKERHUB_USERNAME }}
-          D_REPO: ${{ secrets.DOCKERHUB_REPO }}
-        run: |
-          IMG="${D_USER}/${D_REPO}"
-          D_LC="${IMG,,}"
-          echo "docker_image_lc=${D_LC}" >> "$GITHUB_OUTPUT"
-
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Extract metadata (tags, labels)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ steps.prep.outputs.docker_image_lc }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=sha,prefix=sha-
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Determine Dockerfile
-        id: dockerfile
+      - name: Detect language and prepare metadata
+        id: detect
         run: |
-          DOCKERFILE="${{ env.DOCKERFILE_PATH }}"
-          if [ ! -f "$DOCKERFILE" ] && [ -f "./Dockerfile" ]; then
-            echo "⚠️ Dockerfile no encontrado en $DOCKERFILE, usando fallback: ./Dockerfile"
-            DOCKERFILE="./Dockerfile"
+          echo "🔍 Detectando lenguaje del proyecto..."
+          LANG="unknown"
+          if [ -f "go.mod" ]; then
+            LANG="go"
+          elif [ -f "pom.xml" ]; then
+            LANG="java-maven"
+          elif [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+            LANG="java-gradle"
+          elif [ -f "package.json" ]; then
+            LANG="js"
+          elif [ -f "pyproject.toml" ] || [ -f "requirements.txt" ] || [ -f "setup.py" ]; then
+            LANG="python"
           fi
-          echo "path=${DOCKERFILE}" >> "$GITHUB_OUTPUT"
+          echo "✅ Lenguaje detectado: $LANG"
+          echo "detected_lang=${LANG}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push Docker image
-        id: build
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ${{ steps.dockerfile.outputs.path }}
-          platforms: ${{ env.PLATFORMS }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ steps.prep.outputs.docker_image_lc }}:buildcache
-          cache-to: type=registry,ref=${{ steps.prep.outputs.docker_image_lc }}:buildcache,mode=max
+          RAW_REPO="${{ github.repository }}"
+          REPO_LC="${RAW_REPO,,}"
+          REPO_LC="${REPO_LC// /}"
+          echo "repo_lc=${REPO_LC}" >> "$GITHUB_OUTPUT"
 
-      - name: Image digest
-        run: echo ${{ steps.build.outputs.digest }}
+          if [ "${{ github.event_name }}" = "push" ] && [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${{ github.ref_name }}"
+          else
+            TAG="latest"
+          fi
+          echo "image_tag=${TAG}" >> "$GITHUB_OUTPUT"
 
-  trivy-code-scan:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-    
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+  lint-and-test:
+    name: 🧹 Lint & 🧪 Test
+    needs: detect-language
+    uses: ./.github/workflows/shared-lint-test.yml
+    with:
+      DETECTED_LANG: ${{ needs.detect-language.outputs.detected_lang }}
+      CONTEXT_DIR: ${{ inputs.CONTEXT_DIR || '.' }}
+    secrets: inherit
 
-      - name: Checkout Infra Actions
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/github-template
-          path: .github-template
+  build-and-push:
+    name: 🏗️ Build, Push & Sign
+    needs: 
+      - detect-language
+      - lint-and-test
+    uses: ./.github/workflows/shared-build-push.yml
+    with:
+      DETECTED_LANG: ${{ needs.detect-language.outputs.detected_lang }}
+      IMAGE_TAG: ${{ needs.detect-language.outputs.image_tag }}
+      REPO_LC: ${{ secrets.DOCKERHUB_REPO || needs.detect-language.outputs.repo_lc }}
+      CONTEXT_DIR: ${{ inputs.CONTEXT_DIR || '.' }}
+      DOCKERFILE_PATH: ${{ inputs.DOCKERFILE_PATH || './Dockerfile' }}
+      REGISTRY: 'docker.io'
+      PLATFORMS: 'linux/amd64,linux/arm64'
+    secrets:
+      REGISTRY_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Run Trivy Scan
-        uses: ./.github-template/.github/trivy
-        with:
-          scan-type: 'fs'
-          scan-ref: '${{ env.CONTEXT_DIR }}'
-          output-prefix: 'trivy-fs'
-          artifact-name: 'trivy-reports'
-
-  trivy-image-scan:
-    runs-on: ubuntu-latest
-    needs: build-and-push
-    permissions:
-      contents: read
-      security-events: write
-    
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Prep Image Name
-        id: prep
-        env:
-          D_USER: ${{ secrets.DOCKERHUB_USERNAME }}
-          D_REPO: ${{ secrets.DOCKERHUB_REPO }}
-        run: |
-          IMG="${D_USER}/${D_REPO}"
-          D_LC="${IMG,,}"
-          echo "docker_image_lc=${D_LC}" >> "$GITHUB_OUTPUT"
-
-      - name: Extract metadata for image reference
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ steps.prep.outputs.docker_image_lc }}
-          tags: |
-            type=semver,pattern={{version}}
-
-      - name: Checkout Infra Actions
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/github-template
-          path: .github-template
-
-      - name: Run Trivy Scan
-        uses: ./.github-template/.github/trivy
-        with:
-          scan-type: 'image'
-          image-ref: ${{ steps.prep.outputs.docker_image_lc }}:${{ steps.meta.outputs.version || 'latest' }}
-          output-prefix: 'trivy-image'
-          artifact-name: 'trivy-image-reports'
-
+  security-scan:
+    name: 🔐 Security Scan & Reports
+    needs:
+      - detect-language
+      - build-and-push
+    uses: ./.github/workflows/shared-security-scan.yml
+    with:
+      CONTEXT_DIR: ${{ inputs.CONTEXT_DIR || '.' }}
+      IMAGE_TAG: ${{ needs.detect-language.outputs.image_tag }}
+      REPO_LC: ${{ secrets.DOCKERHUB_REPO || needs.detect-language.outputs.repo_lc }}
+      REGISTRY: 'docker.io'
+    secrets:
+      REGISTRY_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_REPO || needs.detect-language.outputs.repo_lc }}
