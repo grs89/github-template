@@ -33,7 +33,7 @@ jobs:
   detect-language:
     name: 🔍 Detect Language & Context
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
     outputs:
