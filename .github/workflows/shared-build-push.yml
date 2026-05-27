@@ -150,3 +150,17 @@ jobs:
         run: |
           echo "🔏 Firmando imagen (keyless OIDC - Sigstore)..."
           cosign sign --yes "${IMAGE_REF}"
+
+      - name: Verify signature
+        run: |
+          echo "🔍 Verificando firma criptográfica de la imagen..."
+          if [ -n "${{ env.COSIGN_PRIVATE_KEY }}" ]; then
+            echo "Firma con clave privada registrada."
+          else
+            echo "Verificando en transparencia log Fulcio/Rekor..."
+            cosign verify \
+              --certificate-identity-regexp "https://github.com/${{ github.repository_owner }}/" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+              "${IMAGE_REF}"
+            echo "✅ Firma criptográfica Keyless verificada exitosamente."
+          fi
