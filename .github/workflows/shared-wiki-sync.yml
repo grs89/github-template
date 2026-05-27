@@ -1,0 +1,116 @@
+name: Shared Wiki Sync
+
+on:
+  workflow_call:
+    inputs:
+      WIKI_DIR:
+        description: 'Directorio que contiene los archivos de la Wiki (.md)'
+        required: false
+        default: '01-wiki'
+        type: string
+      DRY_RUN:
+        description: 'Si es true, solo simula el proceso sin subir los cambios'
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      WIKI_TOKEN:
+        description: 'Token de acceso personalizado (PAT) con permisos de escritura. Si no se provee, se usará el GITHUB_TOKEN por defecto'
+        required: false
+
+jobs:
+  sync:
+    name: 📖 Sync Wiki
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Verify Wiki Directory
+        id: verify
+        run: |
+          WIKI_DIR="${{ inputs.WIKI_DIR }}"
+          if [ ! -d "$WIKI_DIR" ]; then
+            echo "❌ Error: El directorio '$WIKI_DIR' no existe en el repositorio."
+            exit 1
+          fi
+          
+          # Contar archivos markdown (.md)
+          MD_COUNT=$(find "$WIKI_DIR" -maxdepth 1 -name "*.md" | wc -l)
+          if [ "$MD_COUNT" -eq 0 ]; then
+            echo "⚠️ Advertencia: No se encontraron archivos .md en '$WIKI_DIR'."
+            echo "has_files=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "✅ Se encontraron $MD_COUNT archivos .md para sincronizar."
+            echo "has_files=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "dir=$WIKI_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Sync to GitHub Wiki
+        if: steps.verify.outputs.has_files == 'true'
+        env:
+          WIKI_TOKEN: ${{ secrets.WIKI_TOKEN || secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.DRY_RUN }}
+        run: |
+          # 1. Configurar variables de repositorio y autenticación
+          REPO_URL="https://x-access-token:${WIKI_TOKEN}@github.com/${{ github.repository }}.wiki.git"
+          WIKI_TEMP_DIR="temp_wiki"
+
+          echo "🚀 Iniciando sincronización de la Wiki..."
+          
+          # 2. Intentar clonar la wiki existente
+          if git clone "$REPO_URL" "$WIKI_TEMP_DIR"; then
+            echo "✅ Repositorio de la Wiki clonado exitosamente."
+            cd "$WIKI_TEMP_DIR"
+          else
+            echo "⚠️ No se pudo clonar la Wiki. Es probable que no esté inicializada."
+            echo "🔧 Inicializando repositorio Git local para la Wiki..."
+            mkdir "$WIKI_TEMP_DIR"
+            cd "$WIKI_TEMP_DIR"
+            git init
+            git checkout -b master
+            git remote add origin "$REPO_URL"
+          fi
+
+          # 3. Limpiar archivos antiguos si el repositorio ya existía (excepto la carpeta .git)
+          # Esto evita que se queden archivos borrados en la carpeta 01-wiki/
+          if [ -d ".git" ]; then
+            find . -maxdepth 1 -not -name "." -not -name ".." -not -name ".git" -exec rm -rf {} +
+          fi
+
+          # 4. Copiar los archivos markdown desde el directorio original
+          echo "📂 Copiando archivos de Wiki desde '../../${{ steps.verify.outputs.dir }}'..."
+          cp -r ../${{ steps.verify.outputs.dir }}/* .
+
+          # 5. Configurar información del usuario de Git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 6. Registrar y confirmar los cambios
+          git add .
+          
+          if git diff-index --quiet HEAD --; then
+            echo "✨ No hay cambios pendientes por actualizar en la Wiki."
+          else
+            git commit -m "docs: sync wiki from 01-wiki (commit ${{ github.sha }})"
+            
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "🛡️ Modo DRY_RUN activo. Simulando cambios..."
+              git status
+              git diff --cached
+            else
+              echo "📤 Subiendo cambios a la Wiki remota..."
+              if git push origin master; then
+                echo "🎉 Wiki sincronizada exitosamente!"
+              else
+                echo "❌ Error al subir los cambios a la Wiki."
+                echo "💡 Nota: Asegúrate de haber activado la Wiki en los settings de tu repositorio"
+                echo "   y haber creado al menos la página de inicio (Home) desde la interfaz web"
+                echo "   para inicializar el repositorio Git de la Wiki."
+                exit 1
+              fi
+            fi
+          fi

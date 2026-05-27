@@ -1,0 +1,23 @@
+name: Publish Wiki
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '01-wiki/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: 🔄 Publish Wiki
+    uses: ./.github/workflows/shared-wiki-sync.yml
+    with:
+      WIKI_DIR: '01-wiki'
+      DRY_RUN: false
+    secrets:
+      WIKI_TOKEN: ${{ secrets.GITHUB_TOKEN }}
