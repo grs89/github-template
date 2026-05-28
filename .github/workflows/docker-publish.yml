@@ -86,6 +86,17 @@ jobs:
           fi
           echo "image_tag=${TAG}" >> "$GITHUB_OUTPUT"
 
+  debug-outputs:
+    name: 🐛 Debug Outputs
+    needs: detect-language
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print detect-language outputs
+        run: |
+          echo "detected_lang: ${{ needs.detect-language.outputs.detected_lang }}"
+          echo "repo_lc:       ${{ needs.detect-language.outputs.repo_lc }}"
+          echo "image_tag:     ${{ needs.detect-language.outputs.image_tag }}"
+
   lint-and-test:
     name: 🧹 Lint & 🧪 Test
     needs: detect-language
