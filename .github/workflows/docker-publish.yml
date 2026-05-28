@@ -91,6 +91,9 @@ jobs:
           fi
           echo "image_tag=${TAG}" >> "$GITHUB_OUTPUT"
 
+      - name: Inspect GITHUB_OUTPUT file
+        run: cat "$GITHUB_OUTPUT"
+
   debug-outputs:
     name: 🐛 Debug Outputs
     needs: detect-language
