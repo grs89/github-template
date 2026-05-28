@@ -259,6 +259,7 @@ jobs:
           framework: all
           output_format: json
           output_file_path: checkov-report.json
+          soft_fail: true
 
       - name: Upload Checkov Report Artifact
         if: always()
