@@ -296,8 +296,6 @@ jobs:
             echo "✅ SITE_URL detectada. DAST Scan habilitado."
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
-        outputs:
-          skip: ${{ steps.check-url.outputs.skip }}
 
       - name: Checkout code
         if: ${{ steps.check-url.outputs.skip != 'true' }}
