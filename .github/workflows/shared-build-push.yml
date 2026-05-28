@@ -56,7 +56,18 @@ jobs:
       - name: Prepare Repository Name
         id: prep
         run: |
+          REPO_SUFFIX="${GITHUB_REPOSITORY##*/}"
+          REPO_SUFFIX="${REPO_SUFFIX,,}"
           REPO="${GITHUB_REPOSITORY,,}"
+          
+          REG_USER="${{ secrets.REGISTRY_USER }}"
+          if [ -n "$REG_USER" ]; then
+             CLEAN_USER=$(echo "${REG_USER,,}" | tr -d ' *')
+             if [ -n "$CLEAN_USER" ]; then
+               REPO="${CLEAN_USER}/${REPO_SUFFIX}"
+             fi
+          fi
+          
           REPO="${REPO// /}"
           INPUT_REPO="${{ inputs.REPO_LC }}"
           if [ -n "$INPUT_REPO" ]; then
@@ -142,7 +153,18 @@ jobs:
       - name: Prepare Repository Name & Image Ref
         id: prep
         run: |
+          REPO_SUFFIX="${GITHUB_REPOSITORY##*/}"
+          REPO_SUFFIX="${REPO_SUFFIX,,}"
           REPO="${GITHUB_REPOSITORY,,}"
+          
+          REG_USER="${{ secrets.REGISTRY_USER }}"
+          if [ -n "$REG_USER" ]; then
+             CLEAN_USER=$(echo "${REG_USER,,}" | tr -d ' *')
+             if [ -n "$CLEAN_USER" ]; then
+               REPO="${CLEAN_USER}/${REPO_SUFFIX}"
+             fi
+          fi
+          
           REPO="${REPO// /}"
           INPUT_REPO="${{ inputs.REPO_LC }}"
           if [ -n "$INPUT_REPO" ]; then
