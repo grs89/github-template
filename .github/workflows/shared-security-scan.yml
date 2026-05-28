@@ -16,6 +16,10 @@ on:
         required: false
         type: string
         default: 'ghcr.io'
+      SITE_URL:
+        required: false
+        type: string
+        default: ''
     secrets:
       REGISTRY_USER:
         required: false
@@ -269,6 +273,125 @@ jobs:
           path: checkov-report.json
           retention-days: 7
 
+  dast-scan:
+    name: 🌐 DAST Scan (OWASP ZAP)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: ${{ inputs.SITE_URL != '' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Prepare Repository Name
+        id: prep
+        run: |
+          REPO_SUFFIX="${GITHUB_REPOSITORY##*/}"
+          REPO_SUFFIX="${REPO_SUFFIX,,}"
+          REPO="${GITHUB_REPOSITORY,,}"
+          
+          REG_USER="${{ secrets.REGISTRY_USER }}"
+          if [ -n "$REG_USER" ]; then
+             CLEAN_USER=$(echo "${REG_USER,,}" | tr -d ' *')
+             if [ -n "$CLEAN_USER" ]; then
+               REPO="${CLEAN_USER}/${REPO_SUFFIX}"
+             fi
+          fi
+          
+          REPO="${REPO// /}"
+          INPUT_REPO="${{ inputs.REPO_LC }}"
+          if [ -n "$INPUT_REPO" ]; then
+            REPO="$INPUT_REPO"
+          fi
+          echo "repo_lc=${REPO}" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USER || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+
+      - name: Run Ephemeral Container
+        id: run-app
+        run: |
+          IMAGE_REF="${{ inputs.REGISTRY }}/${{ steps.prep.outputs.repo_lc }}:${{ inputs.IMAGE_TAG }}"
+          echo "🚀 Desplegando contenedor efímero: ${IMAGE_REF}"
+          
+          docker rm -f ephemeral-app 2>/dev/null || true
+          docker run -d --name ephemeral-app -P "${IMAGE_REF}"
+          
+          MAPPED_PORT=$(docker port ephemeral-app | head -n 1 | awk -F: '{print $2}')
+          
+          if [ -z "$MAPPED_PORT" ]; then
+            echo "⚠️ No se detectó puerto expuesto. Mapeando 8080:8080 por defecto..."
+            docker rm -f ephemeral-app 2>/dev/null || true
+            docker run -d --name ephemeral-app -p 8080:8080 "${IMAGE_REF}"
+            MAPPED_PORT="8080"
+          fi
+          
+          echo "MAPPED_PORT=${MAPPED_PORT}" >> "$GITHUB_ENV"
+          echo "✅ Contenedor corriendo en el puerto del host: ${MAPPED_PORT}"
+          
+          echo "⏳ Esperando respuesta HTTP del contenedor..."
+          for i in {1..30}; do
+            if curl -s -f "http://localhost:${MAPPED_PORT}" > /dev/null; then
+              echo "✅ ¡Aplicación lista para escaneo!"
+              break
+            fi
+            echo "   Esperando..."
+            sleep 1
+          done
+
+      - name: Run OWASP ZAP Baseline Scan
+        run: |
+          echo "🌐 Iniciando escaneo DAST con OWASP ZAP en http://localhost:${MAPPED_PORT}..."
+          docker run --rm --network="host" -v $(pwd):/zap/wrk/:rw -t zaproxy/zap-stable zap-baseline.py \
+            -t "http://localhost:${MAPPED_PORT}" \
+            -J zap-report.json || true
+          
+          echo "📂 Reportes generados en el espacio de trabajo:"
+          ls -lh zap-report.json 2>/dev/null || echo "❌ No se encontró zap-report.json"
+
+      - name: Write DAST Summary to Job DX
+        if: always()
+        run: |
+          echo "## 🌐 Resultado DAST Efímero (OWASP ZAP)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f zap-report.json ]; then
+            HIGH_ALERTS=$(jq '[.site[].alerts[] | select(.riskcode == "3")] | length' zap-report.json 2>/dev/null || echo 0)
+            MEDIUM_ALERTS=$(jq '[.site[].alerts[] | select(.riskcode == "2")] | length' zap-report.json 2>/dev/null || echo 0)
+            LOW_ALERTS=$(jq '[.site[].alerts[] | select(.riskcode == "1")] | length' zap-report.json 2>/dev/null || echo 0)
+            INFO_ALERTS=$(jq '[.site[].alerts[] | select(.riskcode == "0")] | length' zap-report.json 2>/dev/null || echo 0)
+            
+            echo "| Severidad | Hallazgos |" >> $GITHUB_STEP_SUMMARY
+            echo "|-----------|-----------|" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔴 Alto | ${HIGH_ALERTS} |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🟡 Medio | ${MEDIUM_ALERTS} |" >> $GITHUB_STEP_SUMMARY
+            echo "| 🔵 Bajo | ${LOW_ALERTS} |" >> $GITHUB_STEP_SUMMARY
+            echo "| ⚪ Info | ${INFO_ALERTS} |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Revisa los detalles en el reporte PDF consolidado." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ El reporte de OWASP ZAP no se generó. Es posible que el contenedor no expusiera un puerto HTTP interactivo." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Clean up Ephemeral Container
+        if: always()
+        run: |
+          echo "🧹 Limpiando contenedor efímero..."
+          docker rm -f ephemeral-app 2>/dev/null || true
+
+      - name: Upload ZAP Report Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: zap-report.json
+          retention-days: 7
+          if-no-files-found: ignore
+
   generate-security-report:
     name: 📄 Generate Security Report
     needs:
@@ -276,6 +399,7 @@ jobs:
       - trivy-image-scan
       - trivy-dockerhub-scan
       - checkov-scan
+      - dast-scan
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -309,6 +433,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: checkov-report
+        continue-on-error: true
+
+      - name: Download ZAP DAST report
+        uses: actions/download-artifact@v4
+        with:
+          name: zap-report
         continue-on-error: true
 
       - name: Download coverage reports

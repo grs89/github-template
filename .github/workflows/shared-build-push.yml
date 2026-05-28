@@ -185,6 +185,33 @@ jobs:
           username: ${{ secrets.REGISTRY_USER || github.actor }}
           password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
 
+      - name: Generate SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: '${{ env.IMAGE_REF }}'
+          format: 'cyclonedx'
+          output: 'sbom.json'
+
+      - name: Attest SBOM with private key
+        if: ${{ env.COSIGN_PRIVATE_KEY != '' }}
+        run: |
+          echo "✍️ Registrando atestación SBOM firmada con clave privada..."
+          cosign attest --key env://COSIGN_PRIVATE_KEY --type cyclonedx --predicate sbom.json "${IMAGE_REF}"
+
+      - name: Attest SBOM keyless (OIDC)
+        if: ${{ env.COSIGN_PRIVATE_KEY == '' }}
+        run: |
+          echo "✍️ Registrando atestación SBOM firmada (Keyless OIDC - Sigstore)..."
+          cosign attest --yes --type cyclonedx --predicate sbom.json "${IMAGE_REF}"
+
+      - name: Upload SBOM Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx-${{ inputs.IMAGE_TAG }}
+          path: sbom.json
+          retention-days: 14
+
       - name: Sign image with private key
         if: ${{ env.COSIGN_PRIVATE_KEY != '' }}
         run: |

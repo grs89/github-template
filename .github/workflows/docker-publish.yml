@@ -143,6 +143,7 @@ jobs:
       IMAGE_TAG: ${{ needs.detect-language.outputs.image_tag }}
       REPO_LC: ${{ needs.detect-language.outputs.repo_lc }}
       REGISTRY: 'docker.io'
+      SITE_URL: ${{ vars.SITE_URL || secrets.SITE_URL || '' }}
     secrets:
       REGISTRY_USER: ${{ secrets.DOCKERHUB_USERNAME }}
       REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}
