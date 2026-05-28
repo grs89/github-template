@@ -275,9 +275,11 @@ def normalize_zap_report(data):
             findings.append(finding)
     return findings
 
-def normalize_sarif_report(data):
+def normalize_sarif_report(data, file_path=''):
     """Normaliza reportes en formato estándar SARIF"""
     findings = []
+    filename = os.path.basename(file_path).lower() if file_path else ''
+    
     runs = data.get('runs', [])
     for run in runs:
         tool_name = run.get('tool', {}).get('driver', {}).get('name', 'Scanner')
@@ -306,6 +308,18 @@ def normalize_sarif_report(data):
                 artifact_loc = locations[0].get('physicalLocation', {}).get('artifactLocation', {})
                 file_loc = artifact_loc.get('uri', 'N/A')
 
+            # Categorización Inteligente según el nombre del archivo
+            if 'sast' in filename:
+                report_type = 'SAST (Trivy - Código)'
+            elif 'dockerhub' in filename:
+                report_type = 'Container Scan (Trivy - Docker Hub)'
+            elif 'trivy' in filename or 'trivy-report' in filename:
+                report_type = 'Container Scan (Trivy - Registro)'
+            elif 'checkov' in filename:
+                report_type = 'IaC Scan (Checkov)'
+            else:
+                report_type = f'SARIF ({tool_name})'
+
             finding = {
                 'name': rule_id,
                 'severity': severity,
@@ -314,7 +328,7 @@ def normalize_sarif_report(data):
                 'line': 'N/A',
                 'cve': rule_id,
                 'identifier': tool_name,
-                'report_type': f'SARIF ({tool_name})'
+                'report_type': report_type
             }
             findings.append(finding)
     return findings
@@ -407,7 +421,7 @@ def load_report(file_path):
             
     # 1. Prioridad Absoluta: Detección por contenido (SARIF)
     if isinstance(data, dict) and 'runs' in data and 'version' in data:
-        return normalize_sarif_report(data)
+        return normalize_sarif_report(data, file_path)
     
     filename = os.path.basename(file_path).lower()
     
@@ -756,13 +770,18 @@ def generate_report(findings, report_title="Reporte de Seguridad", output_prefix
 </html>
 """
     
+    env_dict = dict(os.environ)
+    ci_repo = env_dict.get('CI_REPO', '')
+    if not ci_repo or ci_repo == 'unknown' or '***' in ci_repo:
+        env_dict['CI_REPO'] = env_dict.get('GITHUB_REPOSITORY') or 'unknown'
+
     html = Template(template_str).render(
         title=report_title,
         date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         findings=findings,
         severity_counts=severity_counts,
         categories=categories,
-        os_env=dict(os.environ),
+        os_env=env_dict,
         coverage=coverage
     )
     
