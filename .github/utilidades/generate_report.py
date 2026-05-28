@@ -276,6 +276,74 @@ def normalize_zap_report(data):
             
     return findings
 
+def load_coverage():
+    """Busca archivos de cobertura en el directorio actual y calcula el porcentaje"""
+    coverage_data = {'percentage': None, 'type': None}
+    
+    # 1. Buscar coverage.out (Go)
+    if os.path.exists('coverage.out'):
+        try:
+            total_statements = 0
+            covered_statements = 0
+            with open('coverage.out', 'r') as f:
+                lines = f.readlines()
+                for line in lines[1:]:
+                    parts = line.strip().split(' ')
+                    if len(parts) >= 3:
+                        stmts = int(parts[-2])
+                        count = int(parts[-1])
+                        total_statements += stmts
+                        if count > 0:
+                            covered_statements += stmts
+            
+            if total_statements > 0:
+                pct = (covered_statements / total_statements) * 100
+                return {'percentage': round(pct, 2), 'type': 'Go'}
+        except Exception as e:
+            print(f"⚠️ Error al parsear coverage.out: {e}")
+
+    # 2. Buscar coverage.xml (Cobertura/Jacoco)
+    import xml.etree.ElementTree as ET
+    for xml_file in glob.glob('**/coverage.xml', recursive=True) + glob.glob('**/jacoco*.xml', recursive=True):
+        try:
+            tree = ET.parse(xml_file)
+            root = tree.getroot()
+            
+            # Formato Cobertura
+            if 'line-rate' in root.attrib:
+                rate = float(root.attrib['line-rate'])
+                if rate <= 1.0: rate *= 100
+                return {'percentage': round(rate, 2), 'type': f'Cobertura'}
+                
+            # Formato Jacoco
+            for counter in root.findall('counter'):
+                if counter.get('type') == 'INSTRUCTION':
+                    missed = float(counter.get('missed', 0))
+                    covered = float(counter.get('covered', 0))
+                    total = missed + covered
+                    if total > 0:
+                        pct = (covered / total) * 100
+                        return {'percentage': round(pct, 2), 'type': f'Jacoco'}
+        except Exception as e:
+            print(f"⚠️ Error al parsear XML de cobertura {xml_file}: {e}")
+
+    # 3. Formato LCOV
+    for lcov_file in glob.glob('**/lcov.info', recursive=True):
+        try:
+            lines_found = 0
+            lines_hit = 0
+            with open(lcov_file, 'r') as f:
+                for line in f:
+                    if line.startswith('LF:'): lines_found += int(line.split(':')[1])
+                    if line.startswith('LH:'): lines_hit += int(line.split(':')[1])
+            if lines_found > 0:
+                pct = (lines_hit / lines_found) * 100
+                return {'percentage': round(pct, 2), 'type': 'LCOV'}
+        except Exception:
+            pass
+
+    return coverage_data
+
 def load_report(file_path):
     """Carga y normaliza un reporte según su tipo"""
     if not os.path.exists(file_path):
@@ -335,7 +403,7 @@ def load_report(file_path):
         print(f"⚠️  Advertencia: Formato desconocido o no procesable en {os.path.basename(file_path)}")
         return []
 
-def generate_report(findings, report_title="Reporte de Seguridad", output_prefix="report"):
+def generate_report(findings, report_title="Reporte de Seguridad", output_prefix="report", coverage=None):
     """Genera reporte HTML y PDF a partir de findings normalizados"""
     
     severity_order = {'CRITICAL': 0, 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3, 'INFO': 4, 'UNKNOWN': 5}
@@ -475,6 +543,12 @@ def generate_report(findings, report_title="Reporte de Seguridad", output_prefix
 
   <h2>📊 Resumen Ejecutivo</h2>
   <div class="summary-grid">
+    {% if coverage and coverage.percentage is not none %}
+    <div class="summary-card" style="border-top-color: #2196f3;">
+      <h3>Cobertura ({{ coverage.type }})</h3>
+      <div class="count" style="color: #2196f3;">{{ coverage.percentage }}%</div>
+    </div>
+    {% endif %}
     <div class="summary-card card-total">
       <h3>Hallazgos</h3>
       <div class="count">{{ findings|length }}</div>
@@ -584,7 +658,8 @@ def generate_report(findings, report_title="Reporte de Seguridad", output_prefix
         findings=findings,
         severity_counts=severity_counts,
         categories=categories,
-        os_env=dict(os.environ)
+        os_env=dict(os.environ),
+        coverage=coverage
     )
     
     html_path = f"{output_prefix}.html"
@@ -647,12 +722,16 @@ def main():
     if not all_findings:
         print("ℹ️  No se encontraron hallazgos en ningún reporte.")
         print("📄 Generando reporte de seguridad limpio...")
-        generate_report([], "Reporte Consolidado de Seguridad", "security-report")
+        cov = load_coverage()
+        generate_report([], "Reporte Consolidado de Seguridad", "security-report", coverage=cov)
         sys.exit(0)
 
     # Reporte consolidado
     print(f"\n📊 Generando reporte consolidado con {len(all_findings)} hallazgos...")
-    generate_report(all_findings, "Reporte Consolidado de Seguridad", "security-report")
+    cov = load_coverage()
+    if cov.get('percentage') is not None:
+        print(f"✅ Cobertura detectada: {cov['percentage']}% ({cov['type']})")
+    generate_report(all_findings, "Reporte Consolidado de Seguridad", "security-report", coverage=cov)
     
     # Reportes individuales
     if len(found_reports) > 1:
@@ -662,7 +741,7 @@ def main():
             if findings:
                 report_type = os.path.basename(report_file).replace('.json', '').replace('gl-', '').replace('-', ' ').title()
                 output_name = report_file.replace('.json', '').replace('gl-', '')
-                generate_report(findings, f"Reporte de {report_type}", output_name)
+                generate_report(findings, f"Reporte de {report_type}", output_name, coverage=cov)
 
 if __name__ == "__main__":
     main()
