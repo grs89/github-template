@@ -275,6 +275,135 @@ def normalize_zap_report(data):
             findings.append(finding)
     return findings
 
+def normalize_pip_audit_report(data):
+    """Normaliza reportes de pip-audit (SCA Nativo Python)"""
+    findings = []
+    dependencies = []
+    if isinstance(data, list):
+        dependencies = data
+    elif isinstance(data, dict) and "dependencies" in data:
+        dependencies = data["dependencies"]
+        
+    for dep in dependencies:
+        name = dep.get("name", "N/A")
+        version = dep.get("version", "N/A")
+        vulns = dep.get("vulns", [])
+        
+        if not isinstance(vulns, list):
+            continue
+            
+        for vuln in vulns:
+            vuln_id = vuln.get("id", "PIP-AUDIT")
+            desc = vuln.get("description", "Vulnerabilidad detectada en dependencias de Python.")
+            fix_versions = vuln.get("fix_versions", [])
+            fix_str = ", ".join(fix_versions) if fix_versions else "N/A"
+            
+            finding = {
+                'name': vuln_id,
+                'severity': 'HIGH',
+                'description': desc,
+                'file': 'requirements.txt / pyproject.toml',
+                'line': 'N/A',
+                'cve': vuln_id,
+                'identifier': name,
+                'report_type': 'SCA Nativo (pip-audit)',
+                'package': name,
+                'installed_version': version,
+                'fixed_version': fix_str
+            }
+            findings.append(finding)
+    return findings
+
+def normalize_npm_audit_report(data):
+    """Normaliza reportes de npm audit (SCA Nativo Node.js)"""
+    findings = []
+    vulnerabilities = data.get("vulnerabilities", {})
+    if not isinstance(vulnerabilities, dict):
+        return findings
+        
+    for pkg_name, vuln_details in vulnerabilities.items():
+        severity_raw = vuln_details.get("severity", "high").upper()
+        severity = 'HIGH'
+        if severity_raw in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']:
+            severity = severity_raw
+            
+        via_list = vuln_details.get("via", [])
+        via_desc = ""
+        cve = "NPM-AUDIT"
+        if isinstance(via_list, list) and len(via_list) > 0:
+            first_via = via_list[0]
+            if isinstance(first_via, dict):
+                via_desc = first_via.get("title", "")
+                cve = first_via.get("source", "NPM-AUDIT")
+            else:
+                via_desc = str(first_via)
+                
+        desc = vuln_details.get("description", via_desc or "Vulnerabilidad detectada en dependencias de Node.js.")
+        fix_available = vuln_details.get("fixAvailable", False)
+        fix_str = "Disponible mediante npm audit fix" if fix_available else "N/A"
+        
+        finding = {
+            'name': f"NPM-AUDIT: {pkg_name}",
+            'severity': severity,
+            'description': desc,
+            'file': 'package.json / package-lock.json',
+            'line': 'N/A',
+            'cve': cve,
+            'identifier': pkg_name,
+            'report_type': 'SCA Nativo (npm audit)',
+            'package': pkg_name,
+            'installed_version': vuln_details.get("range", "N/A"),
+            'fixed_version': fix_str
+        }
+        findings.append(finding)
+    return findings
+
+def normalize_govulncheck_report(data):
+    """Normaliza reportes de govulncheck (SCA Nativo Go)"""
+    findings = []
+    if not isinstance(data, list):
+        data = [data]
+        
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        osv = entry.get("osv", {})
+        if not osv:
+            continue
+            
+        vuln_id = osv.get("id", "GO-VULN")
+        summary = osv.get("summary", "")
+        details = osv.get("details", summary)
+        
+        affected = osv.get("affected", [{}])
+        pkg_name = "unknown"
+        fixed_str = "N/A"
+        if affected and isinstance(affected, list):
+            first_aff = affected[0]
+            pkg_name = first_aff.get("package", {}).get("name", "Go Module")
+            ranges = first_aff.get("ranges", [{}])
+            if ranges and isinstance(ranges, list):
+                events = ranges[0].get("events", [])
+                for ev in events:
+                    if "fixed" in ev:
+                        fixed_str = ev["fixed"]
+                        
+        finding = {
+            'name': vuln_id,
+            'severity': 'HIGH',
+            'description': details,
+            'file': 'go.mod / go.sum',
+            'line': 'N/A',
+            'cve': vuln_id,
+            'identifier': pkg_name,
+            'report_type': 'SCA Nativo (govulncheck)',
+            'package': pkg_name,
+            'installed_version': 'N/A',
+            'fixed_version': fixed_str
+        }
+        findings.append(finding)
+    return findings
+
 def normalize_sarif_report(data, file_path=''):
     """Normaliza reportes en formato estándar SARIF"""
     findings = []
@@ -317,6 +446,8 @@ def normalize_sarif_report(data, file_path=''):
                 report_type = 'Container Scan (Trivy - Registro)'
             elif 'checkov' in filename:
                 report_type = 'IaC Scan (Checkov)'
+            elif 'hadolint' in filename:
+                report_type = 'Dockerfile Linter (Hadolint)'
             else:
                 report_type = f'SARIF ({tool_name})'
 
@@ -415,9 +546,13 @@ def load_report(file_path):
         content = f.read()
         try:
             data = json.loads(content)
-        except json.JSONDecodeError as e:
-            print(f"❌ Error: No se pudo decodificar JSON en {file_path}")
-            return []
+        except json.JSONDecodeError:
+            try:
+                # Fallback to Newline-Delimited JSON (NDJSON) for stream outputs like govulncheck
+                data = [json.loads(line) for line in content.strip().split("\n") if line.strip()]
+            except Exception:
+                print(f"❌ Error: No se pudo decodificar JSON en {file_path}")
+                return []
             
     # 1. Prioridad Absoluta: Detección por contenido (SARIF)
     if isinstance(data, dict) and 'runs' in data and 'version' in data:
@@ -436,6 +571,12 @@ def load_report(file_path):
         return normalize_signing_report(data)
     elif 'zap' in filename:
         return normalize_zap_report(data)
+    elif 'pip-audit' in filename:
+        return normalize_pip_audit_report(data)
+    elif 'npm-audit' in filename:
+        return normalize_npm_audit_report(data)
+    elif 'govulncheck' in filename:
+        return normalize_govulncheck_report(data)
     
     # 3. Búsqueda por palabras clave
     if 'trivy' in filename:

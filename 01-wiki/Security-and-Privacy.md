@@ -24,7 +24,17 @@ El pipeline integra Aqua Security **Trivy** en múltiples etapas clave:
 
 ---
 
-## 3. Dynamic Application Security Testing (DAST) Ephemeral
+## 3. Auditorías Nativas de Dependencias del Lenguaje (SCA Nativo)
+
+Complementando los escaneos generales de Trivy, el pipeline ejecuta auditorías nativas dinámicas según el lenguaje detectado para identificar vulnerabilidades específicas publicadas por los gestores de paquetes oficiales:
+- **Go (`govulncheck`):** Evalúa la base de código del proyecto contra la base de datos de vulnerabilidades oficiales de Go (Go Vulnerability Database) generando reportes de flujo de ejecución detallados en formato NDJSON.
+- **Node.js/JavaScript (`npm audit`):** Inspecciona el árbol de dependencias instalado en busca de brechas y exploits publicados en el registro público de npm.
+- **Python (`pip-audit`):** Audita los paquetes instalados contra la base de datos de vulnerabilidades de PyPI de forma exhaustiva.
+- **Política de Soft Fail (Tolerante):** Estas auditorías se ejecutan con `continue-on-error: true`. De este modo, los hallazgos son parseados e incluidos bajo la categoría **`SCA Nativo (npm/pip/govulncheck)`** en el reporte PDF y en el Step Summary, pero no bloquean la compilación principal.
+
+---
+
+## 4. Dynamic Application Security Testing (DAST) Ephemeral
 
 Para cerrar la brecha entre el análisis estático y la seguridad en ejecución, el pipeline implementa **DAST Ephemeral con OWASP ZAP**:
 - **Activación Condicional:** Se ejecuta únicamente si la variable o secreto de repositorio `SITE_URL` se encuentra configurada.
@@ -34,7 +44,7 @@ Para cerrar la brecha entre el análisis estático y la seguridad en ejecución,
 
 ---
 
-## 4. Checkov (Infraestructura como Código - IaC)
+## 5. Checkov (Infraestructura como Código - IaC)
 
 La configuración de infraestructura en contenedores (IaC) es susceptible a errores humanos:
 - **Checkov** escanea el `Dockerfile` y, de existir, manifiestos de Kubernetes o Terraform en el repositorio.
@@ -43,7 +53,16 @@ La configuración de infraestructura en contenedores (IaC) es susceptible a erro
 
 ---
 
-## 5. Firmas Criptográficas (Sigstore Cosign)
+## 6. Linter Estricto de Dockerfiles (Hadolint)
+
+El pipeline integra el linter especializado **Hadolint** para asegurar que la construcción de contenedores Docker cumpla con las máximas directrices de seguridad de la industria:
+- **Análisis de Capas Docker:** Hadolint audita sintáctica y estructuralmente cada instrucción de tus Dockerfiles de forma recursiva.
+- **Bypass Inteligente:** El pipeline detecta la presencia de archivos `Dockerfile`. Si el proyecto no cuenta con contenedores, el job se omite de forma elegante evitando el consumo innecesario de recursos.
+- **Detección Temprana de Riesgos:** Evita el uso de credenciales en instrucciones `ENV`, el uso de tags mutables como `latest`, y la ejecución de instaladores sin limpiar cachés. Los resultados se añaden al PDF final como **`Dockerfile Linter (Hadolint)`**.
+
+---
+
+## 7. Firmas Criptográficas (Sigstore Cosign)
 
 Para certificar que el contenedor publicado proviene innegablemente de los repositorios y flujos oficiales aprobados de la organización, se realiza la firma digital con **Cosign**:
 - **Cosign Keyless & Private Key:** Admite firmas mediante par de claves privadas (`COSIGN_PRIVATE_KEY`) o firmas sin llave (Keyless) basadas en OIDC de Sigstore vinculadas a la identidad segura del pipeline de GitHub Actions.
@@ -51,7 +70,7 @@ Para certificar que el contenedor publicado proviene innegablemente de los repos
 
 ---
 
-## 6. Software Bill of Materials (SBOM) Firmado y Exportable
+## 8. Software Bill of Materials (SBOM) Firmado y Exportable
 
 El proyecto cumple de forma nativa con los estándares más estrictos de seguridad de cadena de suministro de software (**SLSA Nivel 3**):
 - **Generación CycloneDX:** Genera automáticamente el inventario de software completo (**SBOM**) en formato estándar **CycloneDX** utilizando Trivy.
@@ -60,7 +79,7 @@ El proyecto cumple de forma nativa con los estándares más estrictos de segurid
 
 ---
 
-## 7. Dependabot (Mantenimiento Continuo)
+## 9. Dependabot (Mantenimiento Continuo)
 
 El archivo `.github/dependabot.yml` se incluye en la plantilla para revisar semanalmente:
 1. Actualizaciones en librerías nativas del lenguaje de tu aplicación (vía GitHub Package Manager).

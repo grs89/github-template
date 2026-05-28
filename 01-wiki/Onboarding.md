@@ -44,13 +44,17 @@ En el archivo `Variables.md` te pedimos configurar cosas como `DOCKERHUB_TOKEN`.
 
 Por esto usamos **GitHub Secrets**. Cuando guardas una contraseña en GitHub Secrets, ni siquiera tú puedes volver a verla; queda cifrada. Cuando el pipeline (nuestro código automatizado) necesita conectarse a Docker Hub para subir tu imagen, GitHub inyecta esa clave de forma segura en la memoria RAM, hace el trabajo, y la destruye.
 
-## 🛡️ 4. Seguridad: Trivy y Checkov
+## 🛡️ 4. Seguridad: Trivy, Checkov, Hadolint y SCA Nativo
 
-¿Has notado que a veces el pipeline se pone en rojo (Falla) aunque tu código funcione perfecto?
-En `Security-and-Privacy.md` hablamos de **Trivy** y **Checkov**. Estas son herramientas de ciberseguridad.
+¿Has notado que a veces el pipeline se pone en rojo (Falla) aunque tu código funcione perfecto? O tal vez ves advertencias en tu Job Summary.
+En `Security-and-Privacy.md` hablamos de las herramientas de ciberseguridad que protegen nuestra plataforma:
 
-- **Checkov:** Se asegura de que tu `Dockerfile` esté bien escrito. Por ejemplo, si intentas ejecutar tu aplicación dentro de Docker usando el usuario `root` (administrador absoluto), Checkov detendrá tu pipeline. ¿Por qué? Si un hacker vulnera tu app y eres `root`, el hacker toma control de toda la máquina. Si no eres `root`, el hacker queda atrapado en tu contenedor.
-- **Trivy:** Lee tus dependencias (`package.json`, `go.mod`) y verifica si estás usando una versión antigua de una librería que tiene un virus conocido a nivel mundial.
+- **Checkov & Hadolint (Seguridad del Contenedor):** Se aseguran de que tu `Dockerfile` esté bien escrito y fortificado.
+  - **Checkov** verifica estándares de infraestructura (ej. que no ejecutes como usuario `root` o que declares un `HEALTHCHECK`).
+  - **Hadolint** actúa como un linter súper estricto (ej. te avisa si usas tags inestables como `latest`, o comandos inseguros como `sudo` en tus instrucciones).
+- **Trivy & SCA Nativo (Seguridad de Librerías y Dependencias):** Inspeccionan tu código y dependencias en busca de fallos de seguridad conocidos a nivel mundial (vulnerabilidades CVE):
+  - **Trivy** realiza un escaneo estático de amplio espectro en tus archivos lock (como `package-lock.json` o `go.mod`) y en la propia imagen final de Docker.
+  - **SCA Nativo (`npm audit`, `pip-audit`, `govulncheck`):** Son las herramientas oficiales recomendadas por los creadores de cada lenguaje. Hacen una auditoría de dependencias súper precisa. Si tu proyecto es Node.js, se ejecutará `npm audit`; si es Go, `govulncheck`; y si es Python, `pip-audit`.
 
 ### 🐛 Troubleshooting (Solución de problemas comunes)
 

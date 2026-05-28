@@ -19,9 +19,9 @@ Esta capa es responsable de escuchar los eventos del repositorio (Push, Pull Req
 
 ### Capa de Ejecución (Flujos Reutilizables)
 Estos flujos, prefijados con `shared-*.yml`, contienen la lógica técnica "pesada". Son agnósticos al evento que los disparó.
-- `shared-lint-test.yml`: Calidad de código y cobertura de pruebas.
+- `shared-lint-test.yml`: Calidad de código, cobertura de pruebas, fortificación estricta de Dockerfiles con **Hadolint** y auditorías **SCA nativas** del lenguaje (`npm audit`, `pip-audit`, `govulncheck`).
 - `shared-build-push.yml`: Cacheo GHA, compilación Buildx, firma Sigstore/Cosign y generación de SBOM.
-- `shared-security-scan.yml`: Escaneos de vulnerabilidades (Trivy, Checkov) y consolidación del PDF.
+- `shared-security-scan.yml`: Escaneos de vulnerabilidades profundos (Trivy, Checkov, DAST con OWASP ZAP) y consolidación unificada de reportes en PDF y HTML.
 
 ## 2. Flujo de Datos y Diagrama de Componentes
 
@@ -44,7 +44,7 @@ graph TD
     end
 
     subgraph Salidas
-        SLT -->|Cobertura| JS[Job Summary Markdown]
+        SLT -->|Hadolint & SCA & Cobertura| JS[Job Summary Markdown]
         SBP -->|Push| DHR[(Docker Hub Registry)]
         SBP -->|Firma| SLSA[Sigstore / SLSA]
         SSS -->|Artefactos SARIF| GS[GitHub Security Tab]

@@ -50,3 +50,18 @@ with:
 ## 4. Orquestación Segura: Fallbacks de Nombres
 
 Debido a que GitHub Actions enmascara (redacta) variables marcadas como secretos entre distintos jobs (`***`), el sistema implementa un fallback inteligente para calcular correctamente la ruta y el namespace de Docker Hub usando el nombre de la organización de GitHub, asegurando que la ruta del contenedor sea determinista y evite errores de `invalid reference format`.
+
+## 5. Fortificación y Linter Estricto de Dockerfiles (Hadolint)
+
+El sistema incorpora de manera automática y recursiva el linter **Hadolint** para todos los Dockerfiles del proyecto:
+- **Detección Eficiente:** Mediante un script bash condicional se valida la existencia de Dockerfiles. Si no se encuentran, se omite el linter de forma segura, reduciendo minutos innecesarios de ejecución.
+- **Detección de Malas Prácticas:** Hadolint valida contra reglas estrictas de la comunidad (ej. no usar `latest`, no usar `sudo`, optimización de capas `RUN`).
+- **Exportación en SARIF:** Los resultados se exportan nativamente en formato SARIF (`hadolint-report.sarif`), se convierten a JSON, se cargan como artefactos y son consolidados en el PDF ejecutivo bajo la categoría **`Dockerfile Linter (Hadolint)`**.
+
+## 6. Auditorías Nativas de Dependencias del Lenguaje (SCA Nativo)
+
+Trivy escanea estáticamente dependencias en archivos lock, pero las herramientas nativas oficiales de cada lenguaje ofrecen firmas dinámicas y específicas sobre exploits conocidos. Por ello, el pipeline realiza un escaneo de seguridad nativo según el lenguaje detectado en el proyecto:
+- **Go:** Ejecuta `govulncheck -json ./...` utilizando la herramienta oficial de vulnerabilidades de Go, con soporte NDJSON (JSON delimitado por líneas) en nuestro parser.
+- **Node.js/JavaScript:** Ejecuta `npm audit --json` para alertar sobre dependencias vulnerables en la cadena de paquetes npm.
+- **Python:** Ejecuta `pip-audit --format json` para auditar el ecosistema de paquetes de PyPI.
+- **Soft Fail Integrado:** Todas las herramientas SCA nativas se configuran con `continue-on-error: true` (Soft Fail). Esto garantiza que el reporte contenga las alertas detalladas pero **nunca interrumpa** la compilación de producción o los despliegues ágiles, empoderando a los ingenieros de desarrollo a remediarlas progresivamente sin fricción.

@@ -466,6 +466,12 @@ jobs:
           name: zap-report
         continue-on-error: true
 
+      - name: Download Hadolint report
+        uses: actions/download-artifact@v4
+        with:
+          name: hadolint-report
+        continue-on-error: true
+
       - name: Download coverage reports
         uses: actions/download-artifact@v4
         with:

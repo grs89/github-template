@@ -114,6 +114,41 @@ jobs:
               ;;
           esac
 
+      - name: Check if Dockerfile exists
+        id: check_dockerfile
+        working-directory: ${{ inputs.CONTEXT_DIR }}
+        run: |
+          if find . -maxdepth 3 -name "Dockerfile*" -print -quit | grep -q .; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run Hadolint Dockerfile Linter
+        if: ${{ steps.check_dockerfile.outputs.exists == 'true' }}
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          recursive: true
+          format: sarif
+          output-file: hadolint-report.sarif
+          ignore-rules: 'DL3008,DL3013,DL3018'
+        continue-on-error: true
+
+      - name: Rename Hadolint SARIF Report
+        if: ${{ steps.check_dockerfile.outputs.exists == 'true' && always() }}
+        working-directory: ${{ inputs.CONTEXT_DIR }}
+        run: |
+          [ -f hadolint-report.sarif ] && cp hadolint-report.sarif hadolint-report.json || true
+
+      - name: Upload Hadolint Report
+        if: ${{ steps.check_dockerfile.outputs.exists == 'true' && always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: hadolint-report
+          path: ${{ inputs.CONTEXT_DIR }}/hadolint-report.json
+          retention-days: 7
+          if-no-files-found: ignore
+
   test:
     name: 🧪 Test
     runs-on: ubuntu-latest
@@ -184,6 +219,34 @@ jobs:
               ;;
           esac
 
+      - name: Run Native Language SCA Audit
+        working-directory: ${{ inputs.CONTEXT_DIR }}
+        run: |
+          echo "🔐 Iniciando Auditorías de SCA Nativas..."
+          case "${{ inputs.DETECTED_LANG }}" in
+            go)
+              echo "🐹 Ejecutando govulncheck para Go..."
+              go install golang.org/x/vuln/cmd/govulncheck@latest 2>/dev/null || true
+              $(go env GOPATH)/bin/govulncheck -json ./... > govulncheck-report.json 2>/dev/null || true
+              [ -f govulncheck-report.json ] && echo "✅ govulncheck-report.json generado con éxito." || echo "❌ Falló la generación de govulncheck-report.json"
+              ;;
+            js)
+              echo "📦 Ejecutando npm audit para Node.js..."
+              npm audit --json > npm-audit-report.json 2>/dev/null || true
+              [ -f npm-audit-report.json ] && echo "✅ npm-audit-report.json generado con éxito." || echo "❌ Falló la generación de npm-audit-report.json"
+              ;;
+            python)
+              echo "🐍 Ejecutando pip-audit para Python..."
+              pip install --quiet pip-audit 2>/dev/null || true
+              pip-audit --format json -o pip-audit-report.json 2>/dev/null || true
+              [ -f pip-audit-report.json ] && echo "✅ pip-audit-report.json generado con éxito." || echo "❌ Falló la generación de pip-audit-report.json"
+              ;;
+            *)
+              echo "⚠️ Lenguaje no soportado para SCA nativo dinámico o no requiere auditorías de dependencias directas en esta etapa."
+              ;;
+          esac
+        continue-on-error: true
+
       - name: Generate Coverage DX Summary
         if: always()
         working-directory: ${{ inputs.CONTEXT_DIR }}
@@ -223,5 +286,7 @@ jobs:
             ${{ inputs.CONTEXT_DIR }}/coverage/
             ${{ inputs.CONTEXT_DIR }}/target/site/jacoco/
             ${{ inputs.CONTEXT_DIR }}/build/reports/jacoco/
+            ${{ inputs.CONTEXT_DIR }}/*audit-report.json
+            ${{ inputs.CONTEXT_DIR }}/govulncheck-report.json
           retention-days: 7
           if-no-files-found: ignore

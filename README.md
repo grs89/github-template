@@ -26,6 +26,8 @@ Plantilla de repositorio **Estado del Arte** para GitHub con pipelines CI/CD mod
 
 - **Arquitectura Modular (`uses:`):** Flujos divididos en bloques reutilizables (Lint/Test, Build/Push, y Security).
 - **Continuous Integration Ágil:** Escanea la calidad del código y SAST en segundos al revisar PRs.
+- **Linter de Dockerfile (Hadolint):** Validación recursiva y fortificación de Dockerfiles (`hadolint`) para erradicar malas prácticas e inseguridades de inmediato.
+- **Auditoría de Dependencias Nativas (SCA):** Análisis dinámico de seguridad del lenguaje detectado (`npm audit`, `pip-audit`, `govulncheck`) con políticas tolerantes (Soft Fail) para un desarrollo sin interrupciones.
 - **Detección de Secretos:** Integración nativa de **Gitleaks** para prevenir fugas accidentales de tokens y credenciales.
 - **Dynamic Application Security Testing (DAST):** Escaneo en tiempo de ejecución con **OWASP ZAP** (despliegue efímero automático).
 - **Caché Avanzada (GHA):** Compilación Docker usando el caché nativo de GitHub Actions.
@@ -89,7 +91,7 @@ sequenceDiagram
 | --- | --- | --- |
 | **CI/CD Platform** | GitHub Actions | Plataforma principal de automatización. |
 | **Containerization** | Docker / Buildx | Compilación y despliegue multi-arquitectura. |
-| **Security Scanning** | Trivy, Checkov & OWASP ZAP | Escaneo SAST/SCA, contenedores, IaC y DAST dinámico efímero. |
+| **Security Scanning** | Trivy, Checkov, Hadolint, OWASP ZAP & SCA Nativo | Escaneo SAST/SCA, contenedores (IaC/Hadolint), DAST dinámico efímero y auditorías nativas del lenguaje (`npm audit`, `pip-audit`, `govulncheck`). |
 | **Secret Scanning** | Gitleaks | Análisis de prevención de fugas de credenciales en el código. |
 | **Attestation & SBOM** | Sigstore / Cosign & CycloneDX | Firma criptográfica de imágenes y atestación de SBOM CycloneDX (SLSA 3). |
 
@@ -144,6 +146,8 @@ Licencia **MIT**. Consulta el archivo `LICENSE` para detalles.
 
 - **Modular Architecture (`uses:`):** Flows split into reusable blocks (Lint/Test, Build/Push, and Security).
 - **Agile Continuous Integration:** Scans code quality and SAST in seconds upon PR review.
+- **Dockerfile Linter (Hadolint):** Recursive validation and hardening of Dockerfiles (`hadolint`) to eliminate bad practices right from the source.
+- **Native Dependency Audit (SCA):** Dynamic security analysis of the detected language (`npm audit`, `pip-audit`, `govulncheck`) with tolerant (Soft Fail) policies to avoid blocking deployments.
 - **Secret Scanning:** Native **Gitleaks** integration to prevent accidental credentials and token leaks.
 - **Dynamic Application Security Testing (DAST):** Runtime dynamic scan with **OWASP ZAP** (automatic ephemeral deployment).
 - **Advanced Caching (GHA):** Docker build using ultra-fast native GitHub Actions caching.
@@ -207,7 +211,7 @@ sequenceDiagram
 | --- | --- | --- |
 | **CI/CD Platform** | GitHub Actions | Main automation platform. |
 | **Containerization** | Docker / Buildx | Multi-architecture build and deployment. |
-| **Security Scanning** | Trivy, Checkov & OWASP ZAP | SAST/SCA, container, IaC, and dynamic ephemeral DAST scanning. |
+| **Security Scanning** | Trivy, Checkov, Hadolint, OWASP ZAP & Native SCA | SAST/SCA, containers (IaC/Hadolint), dynamic ephemeral DAST, and native language audits (`npm audit`, `pip-audit`, `govulncheck`). |
 | **Secret Scanning** | Gitleaks | Code credentials and token leak prevention analysis. |
 | **Attestation & SBOM** | Sigstore / Cosign & CycloneDX | Cryptographic container signing and CycloneDX SBOM attestation (SLSA 3). |
 
@@ -262,6 +266,8 @@ Modelo de repositório **Estado da Arte** para o GitHub com pipelines CI/CD modu
 
 - **Arquitetura Modular (`uses:`):** Fluxos divididos em blocos reutilizáveis (Lint/Test, Build/Push e Security).
 - **Integração Contínua Ágil:** Verifica a qualidade do código e o SAST em segundos após a revisão de PR.
+- **Linter de Dockerfile (Hadolint):** Validação recursiva e endurecimento de Dockerfiles (`hadolint`) para erradicar más práticas imediatamente.
+- **Auditoria de Dependências Nativas (SCA):** Análise dinâmica de segurança da linguagem detectada (`npm audit`, `pip-audit`, `govulncheck`) com políticas tolerantes (Soft Fail) para não travar implantações.
 - **Detecção de Segredos:** Integração nativa do **Gitleaks** para prevenir vazamentos acidentais de tokens e credenciais.
 - **Dynamic Application Security Testing (DAST):** Varredura em tempo de execução com **OWASP ZAP** (implantação efêmera automática).
 - **Cache Avançado (GHA):** Compilação Docker usando o cache nativo super rápido do GitHub Actions.
@@ -325,7 +331,7 @@ sequenceDiagram
 | --- | --- | --- |
 | **CI/CD Platform** | GitHub Actions | Principal plataforma de automação. |
 | **Containerization** | Docker / Buildx | Build e implantação multi-arquitetura. |
-| **Security Scanning** | Trivy, Checkov & OWASP ZAP | Varredura SAST/SCA, contêineres, IaC e DAST dinâmico efêmero. |
+| **Security Scanning** | Trivy, Checkov, Hadolint, OWASP ZAP & SCA Nativo | Varredura SAST/SCA, contêineres (IaC/Hadolint), DAST dinâmico efêmero e auditorias nativas do idioma (`npm audit`, `pip-audit`, `govulncheck`). |
 | **Secret Scanning** | Gitleaks | Análise de prevenção de vazamentos de credenciais no código. |
 | **Attestation & SBOM** | Sigstore / Cosign & CycloneDX | Assinatura criptográfica de imagens e atestação de SBOM CycloneDX (SLSA 3). |
 

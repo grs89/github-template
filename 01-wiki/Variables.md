@@ -22,7 +22,7 @@ A lo largo del pipeline, el sistema inyecta y utiliza las siguientes variables e
 | Variable de Entorno | Origen del Pipeline | Comportamiento en Tiempo de Ejecución |
 | --- | --- | --- |
 | `REPO_LC` | `${GITHUB_REPOSITORY,,}` | Asegura que el nombre de repositorio extraído en `detect-language` esté siempre forzado a minúsculas (`toLowerCase`). Evita que Docker rechace URLs con mayúsculas (`invalid reference format`). |
-| `DETECTED_LANG` | Script Bash local | Determina el lenguaje raíz leyendo extensiones. Utilizado por `shared-lint-test.yml` para bifurcar (forkear) dinámicamente hacia las reglas `npm` o hacia las reglas `go test`. |
+| `DETECTED_LANG` | Script Bash local | Determina el lenguaje raíz leyendo extensiones. Utilizado por `shared-lint-test.yml` para bifurcar dinámicamente hacia las reglas correspondientes de compilación, linter, pruebas de cobertura y la ejecución de la auditoría **SCA nativa** (`npm audit`, `pip-audit`, `govulncheck`). |
 | `IMAGE_TAG` | Evento del Webhook | Si la ejecución es por Tag (`refs/tags/*`), vale el string semántico (`v1.0.4`). Si es ejecución manual, utiliza el fallback estático `latest`. |
 
 ## Variables Locales Opcionales (`.env` local)
