@@ -273,7 +273,50 @@ def normalize_zap_report(data):
                 'report_type': 'DAST (ZAP)'
             }
             findings.append(finding)
+    return findings
+
+def normalize_sarif_report(data):
+    """Normaliza reportes en formato estándar SARIF"""
+    findings = []
+    runs = data.get('runs', [])
+    for run in runs:
+        tool_name = run.get('tool', {}).get('driver', {}).get('name', 'Scanner')
+        results = run.get('results', [])
+        for res in results:
+            rule_id = res.get('ruleId', 'N/A')
+            level = res.get('level', 'warning')
             
+            severity = 'UNKNOWN'
+            if level == 'error':
+                severity = 'HIGH'
+            elif level == 'warning':
+                severity = 'MEDIUM'
+            elif level == 'note':
+                severity = 'INFO'
+            else:
+                severity = 'LOW'
+
+            message = res.get('message', {}).get('text', '')
+            if not message:
+                message = res.get('message', {}).get('markdown', 'Sin descripción')
+
+            locations = res.get('locations', [])
+            file_loc = 'N/A'
+            if locations:
+                artifact_loc = locations[0].get('physicalLocation', {}).get('artifactLocation', {})
+                file_loc = artifact_loc.get('uri', 'N/A')
+
+            finding = {
+                'name': rule_id,
+                'severity': severity,
+                'description': message,
+                'file': file_loc,
+                'line': 'N/A',
+                'cve': rule_id,
+                'identifier': tool_name,
+                'report_type': f'SARIF ({tool_name})'
+            }
+            findings.append(finding)
     return findings
 
 def load_coverage():
@@ -393,6 +436,8 @@ def load_report(file_path):
     else:
         # Intento por contenido
         if isinstance(data, dict):
+            if 'runs' in data and 'version' in data:
+                return normalize_sarif_report(data)
             if 'check_type' in data or (isinstance(data, list) and len(data) > 0 and 'check_type' in data[0]):
                 return normalize_checkov_report(data)
             if 'vulnerabilities' in data:
