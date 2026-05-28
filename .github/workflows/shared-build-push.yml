@@ -53,6 +53,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Prepare Repository Name
+        id: prep
+        run: |
+          REPO="${GITHUB_REPOSITORY,,}"
+          REPO="${REPO// /}"
+          INPUT_REPO="${{ inputs.REPO_LC }}"
+          if [ -n "$INPUT_REPO" ]; then
+            REPO="$INPUT_REPO"
+          fi
+          echo "repo_lc=${REPO}" >> "$GITHUB_OUTPUT"
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -89,7 +100,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ inputs.REGISTRY }}/${{ inputs.REPO_LC }}
+          images: ${{ inputs.REGISTRY }}/${{ steps.prep.outputs.repo_lc }}
           tags: |
             type=raw,value=${{ inputs.IMAGE_TAG }}
             type=raw,value=latest,enable={{is_default_branch}}
@@ -127,8 +138,21 @@ jobs:
     env:
       COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
       COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
-      IMAGE_REF: ${{ inputs.REGISTRY }}/${{ inputs.REPO_LC }}@${{ needs.build-push.outputs.image_digest }}
     steps:
+      - name: Prepare Repository Name & Image Ref
+        id: prep
+        run: |
+          REPO="${GITHUB_REPOSITORY,,}"
+          REPO="${REPO// /}"
+          INPUT_REPO="${{ inputs.REPO_LC }}"
+          if [ -n "$INPUT_REPO" ]; then
+            REPO="$INPUT_REPO"
+          fi
+          echo "repo_lc=${REPO}" >> "$GITHUB_OUTPUT"
+          
+          IMAGE_REF="${{ inputs.REGISTRY }}/${REPO}@${{ needs.build-push.outputs.image_digest }}"
+          echo "IMAGE_REF=${IMAGE_REF}" >> "$GITHUB_ENV"
+
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
 
