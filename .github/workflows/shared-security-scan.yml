@@ -281,8 +281,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout code
+      - name: Checkout Template for Utilities
         uses: actions/checkout@v4
+        with:
+          repository: grs89/github-template
+          path: github-template-utils
 
       - name: Download Trivy SAST report
         uses: actions/download-artifact@v4
@@ -334,7 +337,7 @@ jobs:
       - name: Run generate_report.py
         run: |
           echo "📊 Generando reporte de seguridad consolidado..."
-          python .github/utilidades/generate_report.py
+          python github-template-utils/.github/utilidades/generate_report.py
 
       - name: Upload HTML/PDF reports
         uses: actions/upload-artifact@v4
