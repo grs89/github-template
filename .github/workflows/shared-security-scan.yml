@@ -31,6 +31,8 @@ on:
         required: false
       DOCKERHUB_REPO:
         required: false
+      SITE_URL:
+        required: false
 
 jobs:
   trivy-sast:
@@ -277,14 +279,32 @@ jobs:
     name: 🌐 DAST Scan (OWASP ZAP)
     runs-on: ubuntu-latest
     continue-on-error: true
-    if: ${{ inputs.SITE_URL != '' }}
     permissions:
       contents: read
     steps:
+      - name: Check if SITE_URL is configured
+        id: check-url
+        env:
+          SITE_URL_SECRET: ${{ secrets.SITE_URL }}
+          SITE_URL_INPUT: ${{ inputs.SITE_URL }}
+        run: |
+          RESOLVED_URL="${SITE_URL_INPUT:-$SITE_URL_SECRET}"
+          if [ -z "$RESOLVED_URL" ]; then
+            echo "⚠️ La variable/secreto SITE_URL no está configurada. Omitiendo DAST Scan."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "✅ SITE_URL detectada. DAST Scan habilitado."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+        outputs:
+          skip: ${{ steps.check-url.outputs.skip }}
+
       - name: Checkout code
+        if: ${{ steps.check-url.outputs.skip != 'true' }}
         uses: actions/checkout@v4
 
       - name: Prepare Repository Name
+        if: ${{ steps.check-url.outputs.skip != 'true' }}
         id: prep
         run: |
           REPO_SUFFIX="${GITHUB_REPOSITORY##*/}"
@@ -307,6 +327,7 @@ jobs:
           echo "repo_lc=${REPO}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to Registry
+        if: ${{ steps.check-url.outputs.skip != 'true' }}
         uses: docker/login-action@v3
         with:
           registry: ${{ inputs.REGISTRY }}
@@ -314,6 +335,7 @@ jobs:
           password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
 
       - name: Run Ephemeral Container
+        if: ${{ steps.check-url.outputs.skip != 'true' }}
         id: run-app
         run: |
           IMAGE_REF="${{ inputs.REGISTRY }}/${{ steps.prep.outputs.repo_lc }}:${{ inputs.IMAGE_TAG }}"
@@ -345,6 +367,7 @@ jobs:
           done
 
       - name: Run OWASP ZAP Baseline Scan
+        if: ${{ steps.check-url.outputs.skip != 'true' }}
         run: |
           echo "🌐 Iniciando escaneo DAST con OWASP ZAP en http://localhost:${MAPPED_PORT}..."
           docker run --rm --network="host" -v $(pwd):/zap/wrk/:rw -t zaproxy/zap-stable zap-baseline.py \
@@ -355,7 +378,7 @@ jobs:
           ls -lh zap-report.json 2>/dev/null || echo "❌ No se encontró zap-report.json"
 
       - name: Write DAST Summary to Job DX
-        if: always()
+        if: ${{ always() && steps.check-url.outputs.skip != 'true' }}
         run: |
           echo "## 🌐 Resultado DAST Efímero (OWASP ZAP)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -378,13 +401,13 @@ jobs:
           fi
 
       - name: Clean up Ephemeral Container
-        if: always()
+        if: ${{ always() && steps.check-url.outputs.skip != 'true' }}
         run: |
           echo "🧹 Limpiando contenedor efímero..."
           docker rm -f ephemeral-app 2>/dev/null || true
 
       - name: Upload ZAP Report Artifact
-        if: always()
+        if: ${{ always() && steps.check-url.outputs.skip != 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: zap-report
