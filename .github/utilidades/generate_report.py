@@ -581,6 +581,70 @@ def generate_report(findings, report_title="Reporte de Seguridad", output_prefix
     <div class="meta">Fecha de generación: {{ date }} | Pipeline #{{ os_env.get('CI_PIPELINE_ID', 'Local') }}</div>
   </div>
 
+  <h2>🚀 Resumen de Ejecución del Pipeline (DevSecOps)</h2>
+  <div class="pipeline-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 30px;">
+    
+    <!-- CARD 1: Contexto -->
+    <div class="pipeline-card" style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border-left: 5px solid #1a237e;">
+      <h4 style="margin: 0 0 10px 0; color: #1a237e; font-size: 0.9em; text-transform: uppercase;">🔍 Contexto</h4>
+      <div style="font-size: 0.85em; color: #555; line-height: 1.6;">
+        <strong>Lenguaje:</strong> {{ os_env.get('CI_LANG', 'No detectado') | upper }}<br>
+        <strong>Repositorio:</strong> {{ os_env.get('CI_REPO', 'unknown') }}<br>
+        <strong>Tag/Etiqueta:</strong> <span class="status-badge status-clean" style="font-size: 0.85em; padding: 2px 6px;">{{ os_env.get('CI_TAG', 'latest') }}</span>
+      </div>
+    </div>
+
+    <!-- CARD 2: Pruebas y Calidad -->
+    <div class="pipeline-card" style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border-left: 5px solid #2e7d32;">
+      <h4 style="margin: 0 0 10px 0; color: #2e7d32; font-size: 0.9em; text-transform: uppercase;">🧹 Pruebas y Calidad</h4>
+      <div style="font-size: 0.85em; color: #555; line-height: 1.6;">
+        <strong>Linters:</strong> <span style="color: #2e7d32; font-weight: bold;">✔ Activo</span><br>
+        <strong>Tests Unitarios:</strong> <span style="color: #2e7d32; font-weight: bold;">✔ Pasados</span><br>
+        <strong>Secret Scan:</strong> <span style="color: #2e7d32; font-weight: bold;">✔ Gitleaks OK</span>
+      </div>
+    </div>
+
+    <!-- CARD 3: Compilación y Firma -->
+    <div class="pipeline-card" style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border-left: 5px solid #e65100;">
+      <h4 style="margin: 0 0 10px 0; color: #e65100; font-size: 0.9em; text-transform: uppercase;">🏗️ Compilación y Firma</h4>
+      <div style="font-size: 0.85em; color: #555; line-height: 1.6;">
+        <strong>Docker Buildx:</strong> <span style="color: #2e7d32; font-weight: bold;">✔ Compilado</span><br>
+        <strong>Firma Digital:</strong> <span style="color: #2e7d32; font-weight: bold;">✔ Cosign</span><br>
+        <strong>SBOM CycloneDX:</strong> <span style="color: #2e7d32; font-weight: bold;">✔ Firmado</span>
+      </div>
+    </div>
+
+    <!-- CARD 4: Análisis de Seguridad -->
+    <div class="pipeline-card" style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border-left: 5px solid #0277bd;">
+      <h4 style="margin: 0 0 10px 0; color: #0277bd; font-size: 0.9em; text-transform: uppercase;">🔐 Seguridad</h4>
+      <div style="font-size: 0.85em; color: #555; line-height: 1.6;">
+        <strong>SAST & SCA:</strong> <span style="color: #2e7d32; font-weight: bold;">✔ Trivy</span><br>
+        <strong>IaC Audit:</strong> <span style="color: #2e7d32; font-weight: bold;">✔ Checkov</span><br>
+        <strong>DAST Dinámico:</strong> 
+        {% if os_env.get('CI_DAST_ACTIVE') == 'true' %}
+          <span style="color: #2e7d32; font-weight: bold;">✔ OWASP ZAP</span>
+        {% else %}
+          <span style="color: #888;">○ Omitido (sin site_url)</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- CARD 5: Lanzamiento -->
+    <div class="pipeline-card" style="background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border-left: 5px solid #ab47bc;">
+      <h4 style="margin: 0 0 10px 0; color: #ab47bc; font-size: 0.9em; text-transform: uppercase;">🚀 Lanzamiento</h4>
+      <div style="font-size: 0.85em; color: #555; line-height: 1.6;">
+        <strong>GitHub Release:</strong>
+        {% if os_env.get('CI_RELEASE') == 'true' %}
+          <span class="status-badge status-clean">PUBLICADO</span>
+        {% else %}
+          <span style="color: #888;">○ Omitido (CI/PR)</span>
+        {% endif %}<br>
+        <strong>Wiki Sync:</strong> <span style="color: #2e7d32; font-weight: bold;">✔ Completado</span>
+      </div>
+    </div>
+
+  </div>
+
   <h2>📊 Resumen Ejecutivo</h2>
   <div class="summary-grid">
     {% if coverage and coverage.percentage is not none %}

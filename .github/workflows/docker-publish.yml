@@ -144,6 +144,7 @@ jobs:
       REPO_LC: ${{ needs.detect-language.outputs.repo_lc }}
       REGISTRY: 'docker.io'
       SITE_URL: ${{ vars.SITE_URL || '' }}
+      DETECTED_LANG: ${{ needs.detect-language.outputs.detected_lang }}
     secrets:
       REGISTRY_USER: ${{ secrets.DOCKERHUB_USERNAME }}
       REGISTRY_PASSWORD: ${{ secrets.DOCKERHUB_TOKEN }}

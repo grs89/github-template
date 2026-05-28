@@ -20,6 +20,10 @@ on:
         required: false
         type: string
         default: ''
+      DETECTED_LANG:
+        required: false
+        type: string
+        default: 'unknown'
     secrets:
       REGISTRY_USER:
         required: false
@@ -486,6 +490,12 @@ jobs:
         run: pip install --quiet jinja2 weasyprint
 
       - name: Run generate_report.py
+        env:
+          CI_LANG: ${{ inputs.DETECTED_LANG }}
+          CI_TAG: ${{ inputs.IMAGE_TAG }}
+          CI_REPO: ${{ inputs.REPO_LC }}
+          CI_RELEASE: ${{ startsWith(github.ref, 'refs/tags/') && 'true' || 'false' }}
+          CI_DAST_ACTIVE: ${{ inputs.SITE_URL != '' && 'true' || 'false' }}
         run: |
           echo "📊 Generando reporte de seguridad consolidado..."
           python github-template-utils/.github/utilidades/generate_report.py
