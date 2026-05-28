@@ -390,7 +390,6 @@ def load_coverage():
 def load_report(file_path):
     """Carga y normaliza un reporte según su tipo"""
     if not os.path.exists(file_path):
-        # Ocultar advertencia si el archivo simplemente no ha sido generado en este pipeline
         return []
     
     # Ignorar archivos vacíos
@@ -404,13 +403,15 @@ def load_report(file_path):
             data = json.loads(content)
         except json.JSONDecodeError as e:
             print(f"❌ Error: No se pudo decodificar JSON en {file_path}")
-            print(f"   Motivo: {e}")
-            print(f"   Primeros 100 caracteres: {repr(content[:100])}")
             return []
+            
+    # 1. Prioridad Absoluta: Detección por contenido (SARIF)
+    if isinstance(data, dict) and 'runs' in data and 'version' in data:
+        return normalize_sarif_report(data)
     
     filename = os.path.basename(file_path).lower()
     
-    # 1. Prioridad: nombres específicos exactos
+    # 2. Prioridad: nombres específicos exactos
     if filename == 'dependency-report.json':
         return normalize_dependency_update_report(data)
     elif filename == 'license-report.json':
@@ -422,7 +423,7 @@ def load_report(file_path):
     elif 'zap' in filename:
         return normalize_zap_report(data)
     
-    # 2. Búsqueda por palabras clave
+    # 3. Búsqueda por palabras clave
     if 'trivy' in filename:
         return normalize_trivy_report(data)
     elif 'checkov' in filename:
@@ -434,19 +435,13 @@ def load_report(file_path):
     elif 'secret' in filename:
         return normalize_gl_report(data, 'Secret Detection')
     else:
-        # Intento por contenido
+        # Fallbacks adicionales
         if isinstance(data, dict):
-            if 'runs' in data and 'version' in data:
-                return normalize_sarif_report(data)
             if 'check_type' in data or (isinstance(data, list) and len(data) > 0 and 'check_type' in data[0]):
                 return normalize_checkov_report(data)
-            if 'vulnerabilities' in data:
-                return normalize_gl_report(data, 'Security Scan')
-            if 'Results' in data:
-                return normalize_trivy_report(data)
         
-        print(f"⚠️  Advertencia: Formato desconocido o no procesable en {os.path.basename(file_path)}")
-        return []
+    print(f"⚠️  Advertencia: Formato desconocido o no procesable en {os.path.basename(file_path)}")
+    return []
 
 def generate_report(findings, report_title="Reporte de Seguridad", output_prefix="report", coverage=None):
     """Genera reporte HTML y PDF a partir de findings normalizados"""
