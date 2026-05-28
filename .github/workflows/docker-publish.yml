@@ -65,19 +65,24 @@ jobs:
           echo "✅ Lenguaje detectado: $LANG"
           echo "detected_lang=${LANG}" >> "$GITHUB_OUTPUT"
 
-          RAW_REPO="${{ github.repository }}"
-          REPO_LC="${RAW_REPO,,}"
+          # 1. Obtener el repositorio desde GITHUB_REPOSITORY (siempre en minúsculas)
+          REPO_LC="${GITHUB_REPOSITORY,,}"
           REPO_LC="${REPO_LC// /}"
           
-          if echo "$DH_REPO" | grep -q '[[:alnum:]]'; then
+          # 2. Si DOCKERHUB_REPO está proveído en los secretos, intentar usarlo
+          if [ -n "$DH_REPO" ]; then
             # Convertir el repositorio de Docker Hub provisto a minúsculas
             DH_REPO_LC="${DH_REPO,,}"
-            echo "repo_lc=${DH_REPO_LC// /}" >> "$GITHUB_OUTPUT"
-            echo "DEBUG: Usando DOCKERHUB_REPO provisto: ${DH_REPO_LC// /}"
-          else
-            echo "repo_lc=${REPO_LC}" >> "$GITHUB_OUTPUT"
-            echo "DEBUG: DOCKERHUB_REPO vacio o no provisto. Usando fallback: ${REPO_LC}"
+            # Asegurarnos de que no contenga espacios ni asteriscos (por máscaras de secretos)
+            DH_CLEAN=$(echo "$DH_REPO_LC" | tr -d ' *')
+            if [ -n "$DH_CLEAN" ]; then
+              REPO_LC="$DH_CLEAN"
+            fi
           fi
+          
+          # 3. Guardar el output final
+          echo "repo_lc=${REPO_LC}" >> "$GITHUB_OUTPUT"
+          echo "DEBUG: repo_lc output is set to: ${REPO_LC}"
 
           if [ "${{ github.event_name }}" = "push" ] && [[ "${{ github.ref }}" == refs/tags/* ]]; then
             TAG="${{ github.ref_name }}"
