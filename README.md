@@ -110,6 +110,36 @@ sequenceDiagram
    - `DOCKERHUB_TOKEN` (Token de seguridad)
    - `DOCKERHUB_REPO` (El nombre de tu contenedor final)
 
+### 🔄 Reuso del Workflow en Repositorios de Desarrollo
+
+Si tienes repositorios de desarrollo (microservicios) y deseas reusar de forma centralizada este workflow modular sin duplicar el pipeline, puedes invocarlo directamente como un workflow reutilizable (`workflow_call`).
+
+Crea un archivo `.github/workflows/deploy.yml` en tu repositorio de desarrollo con la siguiente estructura:
+
+```yaml
+name: Continuous Delivery
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  devsecops-pipeline:
+    uses: grs89/github-template/.github/workflows/docker-publish.yml@v2
+    with:
+      CONTEXT_DIR: '.'              # Opcional, directorio del código
+      DOCKERFILE_PATH: './Dockerfile' # Opcional, ruta del Dockerfile
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_REPO }}
+```
+
+> [!IMPORTANT]
+> Recuerda configurar los secretos `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` y `DOCKERHUB_REPO` en la pestaña **Settings > Secrets and variables > Actions** de tu repositorio de desarrollo para posibilitar el login, compilación y firma.
+
 ### 🚀 Inicio Rápido (Quick Start)
 
 Para probar la Integración Continua (CI), simplemente abre un Pull Request:
@@ -230,6 +260,36 @@ sequenceDiagram
    - `DOCKERHUB_TOKEN` (Security token)
    - `DOCKERHUB_REPO` (Your final container name)
 
+### 🔄 Workflow Reuse in Development Repositories
+
+If you have development repositories (microservices) and want to centrally reuse this modular workflow without duplicating the pipeline code, you can invoke it directly as a reusable workflow (`workflow_call`).
+
+Create a file `.github/workflows/deploy.yml` in your development repository with the following structure:
+
+```yaml
+name: Continuous Delivery
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  devsecops-pipeline:
+    uses: grs89/github-template/.github/workflows/docker-publish.yml@v2
+    with:
+      CONTEXT_DIR: '.'              # Optional, source code directory
+      DOCKERFILE_PATH: './Dockerfile' # Optional, relative Dockerfile path
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_REPO }}
+```
+
+> [!IMPORTANT]
+> Remember to configure the secrets `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, and `DOCKERHUB_REPO` under **Settings > Secrets and variables > Actions** of your development repository to enable login, compilation, and signing.
+
 ### 🚀 Quick Start
 
 To test Continuous Integration (CI), simply open a Pull Request:
@@ -349,6 +409,36 @@ sequenceDiagram
    - `DOCKERHUB_USERNAME` (Seu usuário)
    - `DOCKERHUB_TOKEN` (Token de segurança)
    - `DOCKERHUB_REPO` (O nome do seu contêiner final)
+
+### 🔄 Reuso do Workflow em Repositórios de Desenvolvimento
+
+Se você possui repositórios de desenvolvimento (microsserviços) e deseja reutilizar este fluxo modular de forma centralizada sem duplicar o pipeline, pode invocá-lo diretamente como um fluxo de trabalho reutilizável (`workflow_call`).
+
+Crie um arquivo `.github/workflows/deploy.yml` em seu repositório de desenvolvimento com a seguinte estrutura:
+
+```yaml
+name: Continuous Delivery
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  devsecops-pipeline:
+    uses: grs89/github-template/.github/workflows/docker-publish.yml@v2
+    with:
+      CONTEXT_DIR: '.'              # Opcional, diretório do código
+      DOCKERFILE_PATH: './Dockerfile' # Opcional, caminho do Dockerfile
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+      DOCKERHUB_REPO: ${{ secrets.DOCKERHUB_REPO }}
+```
+
+> [!IMPORTANT]
+> Lembre-se de configurar os segredos `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` e `DOCKERHUB_REPO` na aba **Settings > Secrets and variables > Actions** do seu repositório de desenvolvimento para permitir login, compilação e assinatura.
 
 ### 🚀 Início Rápido (Quick Start)
 
