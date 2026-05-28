@@ -171,3 +171,11 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+
+  sync-wiki:
+    name: 📖 Sync Wiki Documentation
+    needs: build-and-push
+    uses: grs89/github-template/.github/workflows/shared-wiki-sync.yml@v2
+    with:
+      WIKI_DIR: '01-wiki'
+    secrets: inherit

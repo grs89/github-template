@@ -157,3 +157,11 @@ jobs:
       IMAGE_TAG: ${{ needs.detect-language.outputs.image_tag }}
       REPO_LC: ${{ needs.detect-language.outputs.repo_lc }}
     secrets: inherit
+
+  sync-wiki:
+    name: 📖 Sync Wiki Documentation
+    needs: build-and-push
+    uses: ./.github/workflows/shared-wiki-sync.yml
+    with:
+      WIKI_DIR: '01-wiki'
+    secrets: inherit
