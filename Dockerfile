@@ -1,5 +1,5 @@
 # Multi-stage build para optimizar tamaño de imagen
-FROM python:3.11-slim as builder
+FROM python:3.14-slim as builder
 
 WORKDIR /app
 COPY utilidades/requirements.txt .
@@ -8,7 +8,7 @@ COPY utilidades/requirements.txt .
 RUN pip wheel --no-cache-dir --no-deps --wheel-dir /app/wheels -r requirements.txt
 
 # Etapa final
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Labels de metadatos
 LABEL maintainer="GitHub Template Contributors"
