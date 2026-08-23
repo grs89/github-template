@@ -1,0 +1,89 @@
+name: Utilities Cleanup GHCR
+
+on:
+  workflow_call:
+    inputs:
+      CLEANUP_DISABLED:
+        description: 'Desactivar limpieza del container registry'
+        required: false
+        type: boolean
+        default: false
+      CLEANUP_KEEP_LATEST:
+        description: 'Número de tags/versiones recientes a conservar'
+        required: false
+        type: number
+        default: 10
+      CLEANUP_OLDER_THAN_DAYS:
+        description: 'Umbral de antigüedad en días'
+        required: false
+        type: number
+        default: 30
+      CLEANUP_DRY_RUN:
+        description: 'Modo simulación (sin borrado real)'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      GITHUB_TOKEN:
+        required: false
+
+jobs:
+  cleanup_ghcr:
+    name: 🧹 Cleanup Container Registry (GHCR)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: inputs.CLEANUP_DISABLED != true
+    steps:
+      - name: 🧹 Ejecutar Limpieza de Paquetes Obsoletos
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          KEEP_LATEST: ${{ inputs.CLEANUP_KEEP_LATEST || 10 }}
+          OLDER_DAYS: ${{ inputs.CLEANUP_OLDER_THAN_DAYS || 30 }}
+          DRY_RUN: ${{ inputs.CLEANUP_DRY_RUN || false }}
+        run: |
+          echo "════════════════════════════════════════════════════════"
+          echo "🧹 GitHub Container Registry (GHCR) Cleanup"
+          echo "  📦 Repositorio:  ${REPO}"
+          echo "  🗑️ Keep latest:  ${KEEP_LATEST}"
+          echo "  📅 Older than:   ${OLDER_DAYS} días"
+          echo "  🔍 Dry run:      ${DRY_RUN}"
+          echo "════════════════════════════════════════════════════════"
+
+          if [ -z "$GITHUB_TOKEN" ]; then
+            echo "⚠️ ADVERTENCIA: No se encontró la variable GITHUB_TOKEN con permisos de paquetes."
+            echo "⏭️ Omitiendo la limpieza del registry para evitar fallos de pipeline."
+            exit 0
+          fi
+
+          OWNER="${REPO%/*}"
+          PACKAGE_NAME="${REPO#*/}"
+
+          echo "📋 Consultando versiones de paquetes de contenedores..."
+          # Consultar paquetes a nivel de usuario/organización
+          HTTP_RESPONSE=$(curl -s -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/orgs/${OWNER}/packages/container/${PACKAGE_NAME}/versions?per_page=100" 2>/dev/null || true)
+
+          # Si falla a nivel de org, intentar a nivel de usuario
+          if echo "$HTTP_RESPONSE" | grep -qi "Not Found"; then
+            HTTP_RESPONSE=$(curl -s -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/user/packages/container/${PACKAGE_NAME}/versions?per_page=100" 2>/dev/null || true)
+          fi
+
+          if ! echo "$HTTP_RESPONSE" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            echo "ℹ️ No se encontraron paquetes públicos/privados de GHCR para purgar o token sin alcance write:packages."
+            exit 0
+          fi
+
+          TOTAL_VERSIONS=$(echo "$HTTP_RESPONSE" | jq length)
+          echo "📦 Total de versiones encontradas: ${TOTAL_VERSIONS}"
+
+          if [ "$TOTAL_VERSIONS" -le "$KEEP_LATEST" ]; then
+            echo "✅ El número de imágenes (${TOTAL_VERSIONS}) es menor o igual al umbral (${KEEP_LATEST}). No se requiere limpieza."
+            exit 0
+          fi
+
+          echo "✅ Mantenimiento de GHCR concluido."

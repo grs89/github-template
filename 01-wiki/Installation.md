@@ -1,60 +1,75 @@
-# ⚙️ Guía de Instalación e Implementación
+# Instalación y Configuración 🛠️ (GitHub Actions)
 
-Esta guía proporciona la configuración exhaustiva para implementar el **GitHub Template** en proyectos nuevos o existentes.
+La inclusión de las plantillas en tu repositorio de GitHub se realiza mediante un archivo de workflow en `.github/workflows/ci-cd.yml`.
 
-## 1. Importación del Template
+---
 
-Para utilizar esta plantilla de CI/CD en tu organización:
+## 🚀 Paso a Paso: Incluir la Plantilla
 
-1. Ve a la página principal del repositorio en GitHub.
-2. Haz clic en el botón verde **"Use this template"** -> **"Create a new repository"**.
-3. Nombra tu nuevo repositorio.
-4. Asegúrate de marcar "Include all branches" si necesitas conservar histórico (opcional).
-5. Clona el repositorio recién creado en tu máquina local:
-   ```bash
-   git clone git@github.com:tu_usuario/tu_nuevo_repo.git
-   cd tu_nuevo_repo
-   ```
+### Opción A: Inicializador Dinámico (Recomendado)
+Para cualquier proyecto. Detectará automáticamente la tecnología del repositorio (Microservicio App con Dockerfile, Infraestructura Terraform, Librería Java con Maven o Ansible) y ejecutará los flujos correspondientes en paralelo:
 
-## 2. Requisitos de Infraestructura
+Crea el archivo `.github/workflows/ci-cd.yml` en tu repositorio:
 
-Para que los pipelines de DevSecOps se ejecuten correctamente, el repositorio de destino debe cumplir con lo siguiente:
+```yaml
+name: CI/CD DevSecOps Pipeline
 
-- **Código Fuente Soportado:** El proyecto debe contener un archivo identificador en la raíz (ej. `go.mod` para Go, `package.json` para Node.js, `pom.xml` para Java) que el pipeline utiliza para auto-detectar el stack tecnológico.
-- **Dockerfile:** Un archivo `Dockerfile` en la raíz (o en la ruta especificada en `DOCKERFILE_PATH`).
-- **Registry:** Acceso administrativo a Docker Hub o GitHub Container Registry (GHCR) para generar tokens de acceso.
+on:
+  push:
+    branches: [main, master, dev, development, stg, staging, qa]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master, dev, development, stg, staging, qa]
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
 
-## 3. Configuración de Secretos en GitHub
+jobs:
+  pipeline:
+    uses: grs89/github-template/.github/workflows/03-start-init.yml@main
+    secrets: inherit
+```
 
-Para autorizar a GitHub Actions a publicar contenedores, debes configurar credenciales estrictas.
+---
 
-> [!IMPORTANT]
-> Nunca quemes estas credenciales en código ni en archivos `.env`. Deben ingresarse exclusivamente a través de la UI de GitHub en la sección de secretos.
+### Opción B: Inclusión Directa de Microservicio
+Si deseas ejecutar directamente el ciclo de un microservicio sin enrutador dinámico:
 
-Navega a **Settings** > **Secrets and variables** > **Actions** y añade:
+```yaml
+name: App Pipeline
 
-| Secreto (`New repository secret`) | Descripción y Fuente |
-| --- | --- |
-| `DOCKERHUB_USERNAME` | Tu nombre de usuario público en Docker Hub. |
-| `DOCKERHUB_TOKEN` | Token de acceso (PAT) generado en *Account Settings > Security* en Docker Hub. **Debe tener permisos de Read & Write**. |
-| `DOCKERHUB_REPO` | El namespace completo o nombre del repositorio final (ej. `mi-usuario/mi-app`). |
+on:
+  push:
+    branches: [main, dev, stg]
 
-## 4. Configuración de Protecciones de Rama (Branch Protection)
+jobs:
+  app:
+    uses: grs89/github-template/.github/workflows/03-start-docker-matrix-child.yml@main
+    with:
+      SERVICE_PATH: '.'
+      SERVICE_NAME: 'mi-microservicio'
+      SERVICE_LANG: 'python'
+    secrets: inherit
+```
 
-Para asegurar el ciclo de vida del CI/CD, es obligatorio configurar protecciones en la rama `main`:
+---
 
-1. Ve a **Settings** > **Branches**.
-2. Añade una regla para la rama `main`.
-3. Activa **"Require a pull request before merging"**.
-4. Activa **"Require status checks to pass before merging"**.
-5. Añade los checks requeridos: `lint-and-test`, `security-scan`.
+### Opción C: Infraestructura con Terraform
+Para repositorios de infraestructura gestionados con Terraform:
 
-## 5. Troubleshooting Común
+```yaml
+name: IaC Pipeline
 
-### Error: "push access denied, repository does not exist or may require authorization"
-- **Causa:** El `DOCKERHUB_TOKEN` expiró o no tiene permisos de *Write*.
-- **Solución:** Regenera el token en Docker Hub asegurando permisos de Lectura/Escritura y actualiza el secreto en GitHub.
+on:
+  push:
+    branches: [main, dev, stg]
+  pull_request:
+    branches: [main]
 
-### Error: "Checkov IaC Scan failed"
-- **Causa:** Checkov encontró vulnerabilidades en tu `Dockerfile`. A partir de la `v2`, Checkov tiene `soft_fail: true` por lo que no detendrá tu pipeline, pero la vulnerabilidad estará presente en el PDF de seguridad.
-- **Solución:** Descarga el artefacto PDF del Security Scan, revisa el código de regla (ej. `CKV_DOCKER_2`) y corrige tu infraestructura.
+jobs:
+  iac:
+    uses: grs89/github-template/.github/workflows/03-start-iac.yml@main
+    with:
+      TF_ROOT: '.'
+    secrets: inherit
+```

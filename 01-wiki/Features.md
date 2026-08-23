@@ -1,67 +1,72 @@
-# 🌟 Características y Extensión del Sistema
+# Catálogo de Funcionalidades (Features) 🌟
 
-El Template de CI/CD está construido para ser modular. Esta guía explica cómo comprender la lógica de negocio técnica subyacente y cómo extenderla.
+Las plantillas de este repositorio implementan un ciclo **DevSecOps 360°** completo sobre **GitHub Actions**, agrupando las mejores herramientas de seguridad, calidad, compilación, despliegue y observabilidad del mercado, configuradas y listas para usar.
 
-## 1. Módulo de Detección Dinámica de Lenguaje
+---
 
-El bloque central del orquestador es el paso `Detect language and prepare metadata`. Utiliza un script bash inyectado para identificar la tecnología base del repositorio interrogando archivos críticos en la raíz.
+## 🛡️ Escaneos de Seguridad Estática (SAST) y Calidad
 
-### Cómo agregar soporte para un nuevo lenguaje (Ej. Ruby)
-Si en el futuro tu ecosistema requiere soporte nativo para proyectos Ruby, debes extender el condicional bash dentro de `docker-build_push_auto.yml` y `pull-request-validation.yml`:
+| Feature | Descripción ("¿Qué hace?") | Herramienta Subyacente |
+| :--- | :--- | :--- |
+| **SAST** (Static Application Security Testing) | Analiza tu código fuente en busca de vulnerabilidades antes de compilarlo. | Semgrep / Trivy SAST |
+| **SonarQube Scanner** | Análisis estático unificado de seguridad, code smells, duplicación e ingesta de cobertura multi-lenguaje. | SonarQube / SonarCloud |
+| **Trivy SAST** | Escaneo profundo de código fuente y configuraciones para detección de CVEs y secretos embebidos. | Aqua Trivy |
+| **SCA / Dependency Scanning** | Analiza dependencias de terceros buscando vulnerabilidades conocidas (`npm audit`, `pip-audit`, `govulncheck`). | SCA Nativo + Trivy |
+| **Secret Detection** | Escanea el historial y los commits para asegurar que nadie exponga credenciales ni llaves privadas. | Gitleaks CLI |
+| **Dockerfile Linter** | Validación estática y fortificación de Dockerfiles para evitar malas prácticas e inseguridades. | Hadolint |
+| **Container Scanning** | Escanea la imagen de Docker final en busca de vulnerabilidades a nivel de Sistema Operativo. | Trivy Container |
 
-```bash
-# ... código existente ...
-elif [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
-  LANG="python"
-# 🌟 Extensión agregada para Ruby:
-elif [ -f "Gemfile" ]; then
-  LANG="ruby"
-fi
-```
-Una vez que el orquestador exporta `detected_lang=ruby`, debes dirigirte a `shared-lint-test.yml` y añadir un nuevo "step" o "job" que sólo se ejecute `if: inputs.DETECTED_LANG == 'ruby'`, configurando `setup-ruby` y los comandos de pruebas nativos (RSpec, Rubocop, etc).
+---
 
-## 2. Inyección de Job Summaries (Markdown Nativo)
+## 🏗️ Escaneos de Infraestructura como Código (IaC Security)
 
-Una de las características clave es la experiencia de desarrollador (DX) libre de fricción. En lugar de forzar al desarrollador a leer logs brutos, el sistema consolida los resultados usando la variable nativa de Actions `$GITHUB_STEP_SUMMARY`.
+| Feature | Descripción ("¿Qué hace?") | Herramienta Subyacente |
+| :--- | :--- | :--- |
+| **Trivy IaC Scan** | Escanea archivos de infraestructura (Dockerfile, Terraform, Kubernetes YAML) en busca de misconfiguraciones. | Trivy IaC |
+| **Checkov IaC Scan** | Análisis estático complementario de IaC con más de 1000 políticas para Terraform, CloudFormation y K8s. | Checkov (Bridgecrew) |
+| **License Compliance** | Audita las licencias de dependencias detectando licencias Copyleft restrictivas prohibidas (GPL, AGPL). | Compliance Engine |
 
-**Extensión de reportes:**
-Si agregas un nuevo linter (ej. `golangci-lint`), puedes inyectar su reporte directo en la UI así:
-```yaml
-- name: Escribir Reporte Linter
-  if: always()
-  run: |
-    echo "## 🧹 Reporte Linter Go" >> $GITHUB_STEP_SUMMARY
-    echo '```text' >> $GITHUB_STEP_SUMMARY
-    cat linter_output.txt >> $GITHUB_STEP_SUMMARY
-    echo '```' >> $GITHUB_STEP_SUMMARY
-```
+---
 
-## 3. Matriz de Múltiples Arquitecturas (Docker Buildx)
+## 🌐 Pruebas de Seguridad Dinámica (DAST)
 
-El sistema compila contenedores OCI compatibles tanto para plataformas clásicas (AMD64) como para procesadores ARM modernos (como AWS Graviton o Apple Silicon). 
-La matriz se controla desde el parámetro `PLATFORMS` en la llamada del orquestador:
-```yaml
-with:
-  PLATFORMS: 'linux/amd64,linux/arm64'
-```
-> [!WARNING]
-> Si una dependencia estática dentro de tu código C/C++ no soporta compilación cruzada hacia ARM, puedes restringir temporalmente este valor a `'linux/amd64'` para evitar que el pipeline colapse, mientras refactorizas las librerías nativas.
+| Feature | Descripción ("¿Qué hace?") | Herramienta Subyacente |
+| :--- | :--- | :--- |
+| **DAST** (Dynamic Application Security Testing) | Ejecuta pruebas dinámicas contra tu aplicación desplegada (XSS, CSRF, headers inseguros). | OWASP ZAP |
+| **API Security Scan** | Escaneo especializado de endpoints de API REST/GraphQL detectando vulnerabilidades OWASP API Top 10. | OWASP ZAP API Scan |
 
-## 4. Orquestación Segura: Fallbacks de Nombres
+---
 
-Debido a que GitHub Actions enmascara (redacta) variables marcadas como secretos entre distintos jobs (`***`), el sistema implementa un fallback inteligente para calcular correctamente la ruta y el namespace de Docker Hub usando el nombre de la organización de GitHub, asegurando que la ruta del contenedor sea determinista y evite errores de `invalid reference format`.
+## 🤖 Seguridad en Inteligencia Artificial (OWASP LLM Top 10)
 
-## 5. Fortificación y Linter Estricto de Dockerfiles (Hadolint)
+| Feature | Descripción ("¿Qué hace?") | Herramienta Subyacente |
+| :--- | :--- | :--- |
+| **LLM Red-Teaming (Dynamic)** | Pruebas dinámicas contra endpoints LLM evaluando resistencia contra inyección de prompts (`LLM01`), fuga de prompts (`LLM07`) y alucinaciones (`LLM09`). | PromptFoo |
+| **LLM SAST Custom Rules** | Reglas Semgrep especializadas para Python, JS y TS que detectan concatenación de prompts, manejo inseguro de outputs (`LLM05`) y exposición de tokens (`LLM02`). | Semgrep LLM Rules |
+| **LLM Dependency Audit** | Auditoría y escaneo continuo de librerías del ecosistema de IA (`langchain`, `openai`, `anthropic`, `transformers`). | pip-audit / npm audit |
 
-El sistema incorpora de manera automática y recursiva el linter **Hadolint** para todos los Dockerfiles del proyecto:
-- **Detección Eficiente:** Mediante un script bash condicional se valida la existencia de Dockerfiles. Si no se encuentran, se omite el linter de forma segura, reduciendo minutos innecesarios de ejecución.
-- **Detección de Malas Prácticas:** Hadolint valida contra reglas estrictas de la comunidad (ej. no usar `latest`, no usar `sudo`, optimización de capas `RUN`).
-- **Exportación en SARIF:** Los resultados se exportan nativamente en formato SARIF (`hadolint-report.sarif`), se convierten a JSON, se cargan como artefactos y son consolidados en el PDF ejecutivo bajo la categoría **`Dockerfile Linter (Hadolint)`**.
+---
 
-## 6. Auditorías Nativas de Dependencias del Lenguaje (SCA Nativo)
+## 📦 Seguridad de Cadena de Suministro (Supply Chain Security)
 
-Trivy escanea estáticamente dependencias en archivos lock, pero las herramientas nativas oficiales de cada lenguaje ofrecen firmas dinámicas y específicas sobre exploits conocidos. Por ello, el pipeline realiza un escaneo de seguridad nativo según el lenguaje detectado en el proyecto:
-- **Go:** Ejecuta `govulncheck -json ./...` utilizando la herramienta oficial de vulnerabilidades de Go, con soporte NDJSON (JSON delimitado por líneas) en nuestro parser.
-- **Node.js/JavaScript:** Ejecuta `npm audit --json` para alertar sobre dependencias vulnerables en la cadena de paquetes npm.
-- **Python:** Ejecuta `pip-audit --format json` para auditar el ecosistema de paquetes de PyPI.
-- **Soft Fail Integrado:** Todas las herramientas SCA nativas se configuran con `continue-on-error: true` (Soft Fail). Esto garantiza que el reporte contenga las alertas detalladas pero **nunca interrumpa** la compilación de producción o los despliegues ágiles, empoderando a los ingenieros de desarrollo a remediarlas progresivamente sin fricción.
+- **SBOM (Software Bill of Materials):** Genera inventario detallado de dependencias en formato CycloneDX.
+- **SLSA Provenance:** Atestación criptográfica de procedencia de la imagen compilada.
+- **Image Signing (Cosign):** Firma digitalmente la imagen de Docker utilizando Sigstore (Keyless OIDC).
+
+---
+
+## 🚀 Continuous Deployment & GitOps
+
+| Feature | Descripción ("¿Qué hace?") | Herramienta Subyacente |
+| :--- | :--- | :--- |
+| **GitHub Environments Automáticos** | Registra despliegues nativamente en **Environments** de GitHub (`development`, `staging`, `production`) según la rama de Git. | GitHub Environments |
+| **Descubrimiento Agnóstico de GitOps** | Autolocaliza cualquier carpeta de entorno en el repositorio de infraestructura (`*/k8s/DEV`, `*/k8s/STG`, `*/k8s/PROD`, ej. `idp/k8s/DEV`, `vox/k8s/DEV`). | Motor GitOps Dinámico |
+| **GitOps Declarative Deploy** | Actualiza el repo de infraestructura con la nueva imagen y tag para que ArgoCD sincronice el clúster. | GitOps / ArgoCD |
+| **GitOps Auto-Revert** | Revierte automáticamente el commit en GitOps si Argo Rollouts aborta el despliegue por métricas degradadas. | Revert Automation |
+| **Canary Deploy** | Despliegue progresivo a un subconjunto de tráfico con verificación continua y auto-rollback. | Argo Rollouts |
+| **Autodetección de Monorepo Dinámica** | `03-start-init.yml` escanea subdirectorios, detecta lenguajes y genera matrices paralelas de ejecución en GitHub Actions. | Dynamic Matrix Engine |
+| **Insignias por Microservicio en Monorepos** | Genera una tabla en el `README.md` con el stack, cobertura y seguridad aislados por cada microservicio. | Badge Generator |
+| **Reportes de Seguridad Aislados por Servicio** | Cada microservicio genera su propio reporte ejecutivo PDF y HTML contextualizado. | Generador PDF WeasyPrint |
+| **Limpieza de Container Registry (GHCR)** | Purga automatizada de imágenes y tags antiguos no protegidos vía GitHub REST API con `GITHUB_TOKEN`. | GHCR Cleanup |
+| **Automated Releases (Idempotente)** | Publicación y actualización automática de GitHub Releases con `CHANGELOG.md` asociado en eventos de Tag (`v*`). | GitHub Release CLI |
+| **Job Summaries Nativos** | Inyección de resultados visuales directamente en la interfaz de GitHub Actions sin descargas previas. | `$GITHUB_STEP_SUMMARY` |

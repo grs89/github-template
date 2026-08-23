@@ -1,72 +1,62 @@
-# 🏗️ Arquitectura y Diseño del Sistema CI/CD
+# 🏗️ Arquitectura y Diseño del Sistema CI/CD (GitHub Actions)
 
-El diseño arquitectónico de este repositorio se basa fuertemente en el patrón de **Flujos de Trabajo Reutilizables (Reusable Workflows)** de GitHub Actions. Este enfoque separa las responsabilidades de orquestación y ejecución, logrando un código *DRY* (Don't Repeat Yourself) y facilitando el mantenimiento a escala corporativa.
+Nuestras plantillas implementan un ciclo **DevSecOps 360°** modular y escalable para **GitHub Actions**, soportando tanto proyectos monolíticos como **Monorepos políglotas** complejos con compilación paralela y GitOps declarativo.
 
-## 1. Diseño Arquitectónico (Patrón Orquestador / Trabajador)
+---
 
-El sistema se divide lógicamente en dos capas:
+## 1. Patrón Orquestador y Matriz Dinámica (`03-start-init.yml`)
 
-### Capa de Orquestación (Disparadores)
-Esta capa es responsable de escuchar los eventos del repositorio (Push, Pull Request, Release) y de calcular el contexto inicial. Los archivos pertenecientes a esta capa son:
-- `docker-build_push_auto.yml` (Para releases y tags)
-- `pull-request-validation.yml` (Para CI sobre PRs)
-
-**Responsabilidades:**
-1. Detectar el lenguaje del proyecto (Node.js, Go, Java, Python).
-2. Sanitizar y estandarizar el nombre del repositorio (`REPO_LC`).
-3. Determinar el tag de la imagen Docker.
-4. Pasar este contexto (`inputs` y `secrets`) a los flujos de trabajo reutilizables.
-
-### Capa de Ejecución (Flujos Reutilizables)
-Estos flujos, prefijados con `shared-*.yml`, contienen la lógica técnica "pesada". Son agnósticos al evento que los disparó.
-- `shared-lint-test.yml`: Calidad de código, cobertura de pruebas, fortificación estricta de Dockerfiles con **Hadolint** y auditorías **SCA nativas** del lenguaje (`npm audit`, `pip-audit`, `govulncheck`).
-- `shared-build-push.yml`: Cacheo GHA, compilación Buildx, firma Sigstore/Cosign y generación de SBOM.
-- `shared-security-scan.yml`: Escaneos de vulnerabilidades profundos (Trivy, Checkov, DAST con OWASP ZAP) y consolidación unificada de reportes en PDF y HTML.
-
-## 2. Flujo de Datos y Diagrama de Componentes
+En lugar de crear archivos `.github/workflows/` duplicados en cada repositorio, los proyectos clientes importan un único punto de entrada:
 
 ```mermaid
 graph TD
-    subgraph Orquestadores
-        PR[Pull Request] -->|Dispara| PRV(pull-request-validation)
-        TAG[Push Tag] -->|Dispara| DBP(docker-build_push_auto)
-    end
-
-    subgraph Deteccion Contexto
-        PRV -->|Job: detect-language| CTX{Contexto: Lenguaje, Repo, Tag}
-        DBP -->|Job: detect-language| CTX
-    end
-
-    subgraph Ejecutores Compartidos
-        CTX -->|Llama| SLT[shared-lint-test]
-        CTX -->|Llama| SBP[shared-build-push]
-        CTX -->|Llama| SSS[shared-security-scan]
-    end
-
-    subgraph Salidas
-        SLT -->|Hadolint & SCA & Cobertura| JS[Job Summary Markdown]
-        SBP -->|Push| DHR[(Docker Hub Registry)]
-        SBP -->|Firma| SLSA[Sigstore / SLSA]
-        SSS -->|Artefactos SARIF| GS[GitHub Security Tab]
-        SSS -->|Reporte Ejecutivo| PDF[Reporte PDF/HTML]
-    end
+    Parent["👑 Orquestador Inicial (03-start-init.yml)"] --> Gen["🔍 detect_matrix<br/>(Escanea Dockerfiles, TF, Maven, Ansible)"]
+    Gen --> Matrix["⚡ Matriz Paralela de Disparo"]
+    Matrix --> Child1["👶 App 1: backend/<br/>(Python SAST + Build + Trivy + LLM Scan)"]
+    Matrix --> Child2["👶 App 2: frontend/<br/>(JS SAST + Build + Trivy + DAST)"]
+    Matrix --> Child3["👶 App 3: services/auth/<br/>(Go SAST + Build + Trivy + Cosign)"]
 ```
 
-## 3. Estrategia de Caché Multi-Arquitectura
+### Ventajas del diseño:
+- **Aislamiento Total:** Si un microservicio falla sus pruebas unitarias, los demás continúan su ciclo de compilación y despliegue sin bloquearse.
+- **Ejecución Paralela:** Todos los microservicios se compilan y escanean al mismo tiempo en runners independientes.
+- **Especialización por Lenguaje:** El runner de Python ejecuta `pytest`/`pip-audit` y el runner de Node.js ejecuta `npm test`/`npm audit`.
 
-El bloque de compilación Docker en `shared-build-push.yml` implementa el caché nativo de GitHub Actions (`type=gha`), el cual ofrece transferencias locales ultra-rápidas en lugar del tradicional caché de registro en red (`type=registry`). 
+---
 
-```yaml
-# Fragmento del Caché en Buildx
-cache-from: type=gha
-cache-to: type=gha,mode=max
+## 2. Flujo Completo DevSecOps 360° en Contenedores
+
+```mermaid
+graph TD
+    A([Inicio de Pipeline]) --> B(🕵️ Detección de Lenguaje)
+    B --> C{Tiene Dockerfile?}
+    C -- Sí --> D[🏗️ Docker Buildx GHA Cache]
+    C -- No --> E[⏭️ Saltar Build]
+    
+    D --> F[💾 Caché en GitHub Actions]
+    D --> G[📦 Push a GHCR / DockerHub]
+    G --> H(🔐 Firmado con Cosign Keyless)
+    G --> I(🛡️ Container Scanning - Trivy)
+    I --> J(🌐 DAST - OWASP ZAP)
+    J --> K(🔑 API Security Scan)
+    K --> L{Deploy GitOps?}
+    L -- Sí --> M[🚀 GitOps Deploy Agnostico]
+    M --> N[🧪 Smoke & Perf Tests]
+    N --> O{Verificación OK?}
+    O -- No --> P[⏪ Auto-Rollback Git Revert]
+    O -- Sí --> Q[✅ Promote to Stable]
+    Q --> R(📄 Dashboard PDF/HTML)
 ```
-Esto reduce los tiempos de compilación de 10 minutos a menos de 45 segundos para reconstrucciones.
 
-## 4. Estrategia de Firmado y Provenance (SLSA 3)
+---
 
-Al finalizar la construcción, el motor utiliza `cosign` en modo *Keyless* (OIDC) atado a la identidad de GitHub Actions.
-1. Se construye la imagen y se extrae el digest (SHA256).
-2. Se genera el SBOM en formato SPDX de forma automática durante el build.
-3. Se publica en Docker Hub.
-4. `cosign sign` inyecta la firma en el registro remoto, vinculando criptográficamente el commit exacto con la imagen de Docker, previniendo alteraciones y *supply-chain attacks*.
+## 3. Orquestadores y Puntos de Entrada
+
+| Orquestador | Arquitectura | Motor Docker | Caso de Uso Ideal |
+| :--- | :--- | :--- | :--- |
+| **`03-start-init.yml`** | Enrutador Dinámico | N/A | **Cualquier proyecto**. Punto de entrada recomendado para delegar el descubrimiento a la lógica del pipeline. |
+| **`03-start-docker-matrix-child.yml`** | Reusable Workflow | Docker BuildKit (Buildx) | Pipeline secundario de microservicios contenedorizados. |
+| **`03-start-iac.yml`** | Especialidad Terraform | N/A | Repositorios de infraestructura gestionados con Terraform y FinOps (Infracost). |
+| **`infrastructure-ansible.yml`** | Especialidad Ansible | N/A | Automatización de configuración y playbooks de Ansible. |
+| **`libraries-maven-lib.yml`** | Especialidad Java | N/A | Librerías compartidas Java/Maven con escaneo y publicación a GitHub Packages. |
+| **`k8s-gitops.yml`** | Especialidad GitOps | N/A | Validación de manifiestos YAML y esquemas K8s. |

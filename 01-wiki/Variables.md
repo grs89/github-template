@@ -1,30 +1,48 @@
-# 🔑 Variables de Entorno y Secretos
+# 🔑 Variables y Secretos de Configuración (GitHub Actions)
 
-El motor DevSecOps utiliza secretos inyectados dinámicamente mediante el gestor nativo de GitHub Actions para interactuar con infraestructuras externas, como registros de contenedores y servicios en la nube, sin exponer contraseñas en código duro.
+Este documento detalla los `inputs` y `secrets` disponibles en las plantillas DevSecOps de GitHub Actions.
 
-> [!CAUTION]
-> Almacenar `DOCKERHUB_TOKEN` o `REGISTRY_PASSWORD` en formato texto plano dentro del código fuente provocará un fallo inmediato en las políticas de seguridad SAST de Trivy y podría exponer contenedores de la compañía.
+---
 
-## Tabla de Secretos Requeridos
+## 📌 1. Variables Globales y de Orquestación (`inputs`)
 
-Estos secretos deben configurarse en **Settings > Secrets and variables > Actions > Repository secrets**.
+| Input | Valor por Defecto | Tipo | Descripción |
+| :--- | :---: | :---: | :--- |
+| `SERVICES` | `""` | `string` | Lista opcional de carpetas de microservicios separadas por espacio. Si está vacía, se autodetectan. |
+| `SERVICE_PATH` | `"."` | `string` | Directorio relativo del microservicio dentro del repositorio. |
+| `SERVICE_NAME` | `""` | `string` | Nombre del microservicio utilizado para etiquetar imágenes y reportes. |
+| `SERVICE_LANG` | `"unknown"` | `string` | Lenguaje del microservicio (`python`, `go`, `js`, `java-maven`, `java-gradle`). |
+| `RUNNER_TAG` | `"ubuntu-latest"` | `string` | Etiqueta del runner de GitHub Actions donde ejecutar los jobs. |
+| `GITOPS_TARGET_ENV`| `"PROD"` | `string` | Nombre del entorno destino para GitOps (`DEV`, `STG`, `PROD`). |
+| `TARGET_ENVIRONMENT`| `"production"` | `string` | Nombre del Environment de GitHub (`development`, `staging`, `production`). |
 
-| Nombre del Secreto (`Secret`) | Descripción Técnica y Propósito | Requerido | Valor de Ejemplo / Origen |
-| --- | --- | :---: | --- |
-| `DOCKERHUB_USERNAME` | Identificador público que será enviado al `docker/login-action`. Actúa como principal para obtener el ticket de autenticación del API de Docker Hub. | ✅ Sí | `gersonofstone` |
-| `DOCKERHUB_TOKEN` | Token de Acceso Personal (PAT). Utilizado como password por Buildx. Debe tener explícitamente el "scope" de `Read & Write` para posibilitar el `docker push`. | ✅ Sí | `dckr_pat_xxxxx...` |
-| `DOCKERHUB_REPO` | Ruta base del repositorio destino dentro de Docker Hub o GHCR que será procesado. Si un atacante roba este dato no puede hacer nada sin el Token. | ✅ Sí | `gersonofstone/centralizegg` |
+---
 
-## Variables Dinámicas Derivadas (Entorno de Ejecución)
+## 🔐 2. Secretos de Configuración (`secrets`)
 
-A lo largo del pipeline, el sistema inyecta y utiliza las siguientes variables extraídas desde el contexto global para asegurar flujos agnósticos. *No necesitas configurarlas manualmente.*
+| Secreto | Requerido | Descripción |
+| :--- | :---: | :--- |
+| `GITHUB_TOKEN` | Sí (nativo) | Token de acceso de GitHub para autenticar en GHCR, crear releases y comentar PRs. |
+| `GITOPS_DEPLOY_KEY` | Opcional | Clave SSH privada con permisos de escritura en el repositorio de GitOps. |
+| `GITLAB_TOKEN` | Opcional | Token de GitLab si el repositorio GitOps se encuentra alojado en GitLab. |
+| `DOCKERHUB_USERNAME` | Opcional | Usuario de Docker Hub para publicación secundaria. |
+| `DOCKERHUB_TOKEN` | Opcional | Token de acceso de Docker Hub. |
+| `SONAR_TOKEN` | Opcional | Token de autenticación para SonarQube / SonarCloud. |
+| `SONAR_HOST_URL` | Opcional | URL del servidor de SonarQube. |
+| `DEFECTDOJO_API_KEY`| Opcional | API Key para subir hallazgos a DefectDojo. |
+| `DEFECTDOJO_URL` | Opcional | URL de la instancia de DefectDojo. |
+| `INFRACOST_API_KEY` | Opcional | API Key para estimación de costos en Merge/Pull Requests. |
+| `OPENAI_API_KEY` | Opcional | Clave para pruebas dinámicas de red-teaming de IA con PromptFoo. |
+| `ANTHROPIC_API_KEY`| Opcional | Clave de Anthropic para red-teaming de LLMs. |
+| `GEMINI_API_KEY` | Opcional | Clave de Google Gemini para red-teaming de LLMs. |
 
-| Variable de Entorno | Origen del Pipeline | Comportamiento en Tiempo de Ejecución |
-| --- | --- | --- |
-| `REPO_LC` | `${GITHUB_REPOSITORY,,}` | Asegura que el nombre de repositorio extraído en `detect-language` esté siempre forzado a minúsculas (`toLowerCase`). Evita que Docker rechace URLs con mayúsculas (`invalid reference format`). |
-| `DETECTED_LANG` | Script Bash local | Determina el lenguaje raíz leyendo extensiones. Utilizado por `shared-lint-test.yml` para bifurcar dinámicamente hacia las reglas correspondientes de compilación, linter, pruebas de cobertura y la ejecución de la auditoría **SCA nativa** (`npm audit`, `pip-audit`, `govulncheck`). |
-| `IMAGE_TAG` | Evento del Webhook | Si la ejecución es por Tag (`refs/tags/*`), vale el string semántico (`v1.0.4`). Si es ejecución manual, utiliza el fallback estático `latest`. |
+---
 
-## Variables Locales Opcionales (`.env` local)
+## 🧹 3. Limpieza de Contenedores (GHCR Cleanup)
 
-En la raíz de tus proyectos que consuman este template, es altamente recomendado incluir un archivo `.env.example` que denote qué variables utilizará tu contenedor. El pipeline no hace *parseo* directo de ellas en la nube (pues deben inyectarse en el orquestador como *ConfigMaps* de Kubernetes o *Secrets*), pero sirven como esquema de metadatos estáticos.
+| Input | Valor por Defecto | Tipo | Descripción |
+| :--- | :---: | :---: | :--- |
+| `CLEANUP_DISABLED` | `false` | `boolean` | Desactiva por completo la depuración de paquetes en GHCR. |
+| `CLEANUP_KEEP_LATEST` | `10` | `number` | Número de imágenes/versiones recientes a conservar. |
+| `CLEANUP_OLDER_THAN_DAYS` | `30` | `number` | Umbral de días para considerar una imagen como candidata a purga. |
+| `CLEANUP_DRY_RUN` | `false` | `boolean` | Simula la purga sin borrar efectivamente paquetes. |

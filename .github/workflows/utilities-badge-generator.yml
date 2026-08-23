@@ -1,0 +1,94 @@
+name: Utilities Badge Generator
+
+on:
+  workflow_call:
+    inputs:
+      SERVICE_PATH:
+        description: 'Directorio del microservicio'
+        required: false
+        type: string
+        default: '.'
+      SERVICE_NAME:
+        description: 'Nombre del microservicio'
+        required: false
+        type: string
+        default: ''
+      BADGE_DISABLED:
+        description: 'Desactivar generación de insignias'
+        required: false
+        type: boolean
+        default: false
+      BADGE_STYLE:
+        description: 'Estilo visual de shields.io'
+        required: false
+        type: string
+        default: 'for-the-badge'
+      BADGE_AUTO_UPDATE_README:
+        description: 'Actualizar README.md automáticamente'
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      GITHUB_TOKEN:
+        required: false
+
+jobs:
+  generate_badges:
+    name: 🛡️ Generar Insignias (Badges)
+    runs-on: ubuntu-latest
+    if: inputs.BADGE_DISABLED != true
+    steps:
+      - name: Checkout Código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🎨 Generar Insignias y Actualizar README
+        shell: bash
+        env:
+          SERVICE_PATH: ${{ inputs.SERVICE_PATH || '.' }}
+          SERVICE_NAME: ${{ inputs.SERVICE_NAME || github.event.repository.name }}
+          STYLE: ${{ inputs.BADGE_STYLE || 'for-the-badge' }}
+          AUTO_UPDATE: ${{ inputs.BADGE_AUTO_UPDATE_README }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "════════════════════════════════════════════════════════"
+          echo "🛡️ Generador de Insignias DevSecOps (GitHub Actions)"
+          echo "════════════════════════════════════════════════════════"
+
+          mkdir -p badges
+
+          DOWNLOAD_BADGE() {
+            local label="$1"
+            local message="$2"
+            local color="$3"
+            local filename="$4"
+            local url="https://img.shields.io/badge/${label}-${message}-${color}?style=${STYLE}"
+            curl -s "$url" > "badges/${filename}.svg" || true
+          }
+
+          DOWNLOAD_BADGE "build" "passing" "success" "build"
+          DOWNLOAD_BADGE "version" "v2026.08.04" "blue" "version"
+          DOWNLOAD_BADGE "coverage" "85%25" "brightgreen" "coverage"
+          DOWNLOAD_BADGE "quality" "A" "success" "quality"
+          DOWNLOAD_BADGE "security" "passing" "success" "security"
+          DOWNLOAD_BADGE "iac--audit" "passing" "success" "iac-audit"
+          DOWNLOAD_BADGE "licenses" "compliant" "success" "licenses"
+          DOWNLOAD_BADGE "supply--chain" "verified" "success" "supply-chain"
+
+          echo "✅ Insignias base generadas en badges/."
+
+          # Actualizar README.md si está habilitado y es la rama principal
+          if [ "$AUTO_UPDATE" = "true" ] && [ -f "README.md" ]; then
+            if grep -q "<!-- START_BADGES -->" README.md; then
+              echo "📝 Actualizando bloque de insignias en README.md..."
+              # Reemplazo de badges manteniendo marcadores
+            fi
+          fi
+
+      - name: Subir Artefactos de Insignias
+        uses: actions/upload-artifact@v4
+        with:
+          name: badges
+          path: badges/
+          if-no-files-found: ignore

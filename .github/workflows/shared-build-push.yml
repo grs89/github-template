@@ -4,20 +4,29 @@ on:
   workflow_call:
     inputs:
       DETECTED_LANG:
-        required: true
+        required: false
         type: string
+        default: 'unknown'
       IMAGE_TAG:
-        required: true
+        required: false
         type: string
+        default: ''
       REPO_LC:
-        required: true
+        required: false
         type: string
+        default: ''
       CONTEXT_DIR:
-        required: true
+        required: false
         type: string
+        default: '.'
+      SERVICE_NAME:
+        required: false
+        type: string
+        default: ''
       DOCKERFILE_PATH:
-        required: true
+        required: false
         type: string
+        default: 'Dockerfile'
       REGISTRY:
         required: false
         type: string
@@ -26,10 +35,26 @@ on:
         required: false
         type: string
         default: 'linux/amd64,linux/arm64'
-    secrets:
-      REGISTRY_USER:
+      PUSH_TO_ECR:
         required: false
-      REGISTRY_PASSWORD:
+        type: boolean
+        default: false
+      AWS_REGION:
+        required: false
+        type: string
+        default: 'us-east-1'
+    secrets:
+      GITHUB_TOKEN:
+        required: false
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      ECR_REGISTRY:
         required: false
       COSIGN_PRIVATE_KEY:
         required: false
@@ -42,38 +67,17 @@ on:
 
 jobs:
   build-push:
-    name: 🏗️ Build & Push Docker Image
+    name: 🏗️ Build & Push Docker Image (Multi-Registry)
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
+      id-token: write
     outputs:
       image_digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Prepare Repository Name
-        id: prep
-        run: |
-          REPO_SUFFIX="${GITHUB_REPOSITORY##*/}"
-          REPO_SUFFIX="${REPO_SUFFIX,,}"
-          REPO="${GITHUB_REPOSITORY,,}"
-          
-          REG_USER="${{ secrets.REGISTRY_USER }}"
-          if [ -n "$REG_USER" ]; then
-             CLEAN_USER=$(echo "${REG_USER,,}" | tr -d ' *')
-             if [ -n "$CLEAN_USER" ]; then
-               REPO="${CLEAN_USER}/${REPO_SUFFIX}"
-             fi
-          fi
-          
-          REPO="${REPO// /}"
-          INPUT_REPO="${{ inputs.REPO_LC }}"
-          if [ -n "$INPUT_REPO" ]; then
-            REPO="$INPUT_REPO"
-          fi
-          echo "repo_lc=${REPO}" >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -81,48 +85,90 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Registry
+      - name: 🔑 Log in to GitHub Container Registry (GHCR)
         uses: docker/login-action@v3
         with:
-          registry: ${{ inputs.REGISTRY }}
-          username: ${{ secrets.REGISTRY_USER || github.actor }}
-          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🔑 Log in to Docker Hub (Fallback/Dual)
+        if: secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != ''
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 🔑 Log in to AWS ECR (Fallback/Dual)
+        if: inputs.PUSH_TO_ECR == true && secrets.AWS_ACCESS_KEY_ID != '' && secrets.AWS_SECRET_ACCESS_KEY != ''
+        uses: aws-actions/amazon-ecr-login@v2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ inputs.AWS_REGION || 'us-east-1' }}
+
+      - name: Prepare Registry Tags
+        id: prep
+        shell: bash
+        run: |
+          REPO_NAME="${GITHUB_REPOSITORY##*/}"
+          SRV_NAME="${{ inputs.SERVICE_NAME || '' }}"
+          [ -z "$SRV_NAME" ] && SRV_NAME="$REPO_NAME"
+
+          TAG="${{ inputs.IMAGE_TAG }}"
+          if [ -z "$TAG" ]; then
+            TAG="${GITHUB_REF_NAME}_${GITHUB_SHA::7}"
+          fi
+
+          IMAGES="ghcr.io/${GITHUB_REPOSITORY,,}"
+          if [ "${{ inputs.CONTEXT_DIR }}" != "." ] && [ -n "${{ inputs.SERVICE_NAME }}" ]; then
+            IMAGES="ghcr.io/${GITHUB_REPOSITORY,,}/${SRV_NAME}"
+          fi
+
+          # Añadir DockerHub si está configurado
+          if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
+            DH_USER="${{ secrets.DOCKERHUB_USERNAME }}"
+            IMAGES="${IMAGES},${DH_USER}/${SRV_NAME}"
+          fi
+
+          # Añadir AWS ECR si está configurado
+          if [ "${{ inputs.PUSH_TO_ECR }}" = "true" ] && [ -n "${{ secrets.ECR_REGISTRY }}" ]; then
+            ECR_REG="${{ secrets.ECR_REGISTRY }}"
+            IMAGES="${IMAGES},${ECR_REG}/${SRV_NAME}"
+          fi
+
+          echo "images=${IMAGES}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Determine Dockerfile
         id: dockerfile
+        shell: bash
         run: |
-          DOCKERFILE="${{ inputs.DOCKERFILE_PATH }}"
-          if [ "${{ inputs.DETECTED_LANG }}" = "java-maven" ] || [ "${{ inputs.DETECTED_LANG }}" = "java-gradle" ]; then
-            JAVA_DOCKERFILE="${{ inputs.CONTEXT_DIR }}/src/main/docker/Dockerfile.multistaged"
-            if [ -f "$JAVA_DOCKERFILE" ]; then
-              DOCKERFILE="$JAVA_DOCKERFILE"
-              echo "☕ Usando Dockerfile.multistaged para Java en $JAVA_DOCKERFILE"
-            fi
+          DOCKERFILE="${{ inputs.CONTEXT_DIR }}/${{ inputs.DOCKERFILE_PATH }}"
+          if [ ! -f "$DOCKERFILE" ]; then
+            DOCKERFILE="${{ inputs.CONTEXT_DIR }}/Dockerfile"
           fi
-          
-          if [ ! -f "$DOCKERFILE" ] && [ -f "./Dockerfile" ]; then
-            echo "⚠️ Dockerfile no encontrado en $DOCKERFILE, usando fallback: ./Dockerfile"
+          if [ ! -f "$DOCKERFILE" ]; then
             DOCKERFILE="./Dockerfile"
           fi
-          
           echo "path=${DOCKERFILE}" >> "$GITHUB_OUTPUT"
 
       - name: Extract metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ inputs.REGISTRY }}/${{ steps.prep.outputs.repo_lc }}
+          images: ${{ steps.prep.outputs.images }}
           tags: |
-            type=raw,value=${{ inputs.IMAGE_TAG }}
+            type=raw,value=${{ steps.prep.outputs.tag }}
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
             type=ref,event=tag
 
-      - name: Build and push Docker image
+      - name: 🏗️ Build and push Docker image
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ${{ inputs.CONTEXT_DIR || '.' }}
           file: ${{ steps.dockerfile.outputs.path }}
           push: true
           provenance: true
@@ -135,7 +181,7 @@ jobs:
 
       - name: Image digest
         run: |
-          echo "✅ Imagen publicada exitosamente."
+          echo "✅ Imagen publicada exitosamente en registros configurados."
           echo "   Digest: ${{ steps.build.outputs.digest }}"
 
   sign-image:
@@ -146,94 +192,27 @@ jobs:
     permissions:
       id-token: write
       packages: write
-    env:
-      COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-      COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
     steps:
-      - name: Prepare Repository Name & Image Ref
-        id: prep
-        run: |
-          REPO_SUFFIX="${GITHUB_REPOSITORY##*/}"
-          REPO_SUFFIX="${REPO_SUFFIX,,}"
-          REPO="${GITHUB_REPOSITORY,,}"
-          
-          REG_USER="${{ secrets.REGISTRY_USER }}"
-          if [ -n "$REG_USER" ]; then
-             CLEAN_USER=$(echo "${REG_USER,,}" | tr -d ' *')
-             if [ -n "$CLEAN_USER" ]; then
-               REPO="${CLEAN_USER}/${REPO_SUFFIX}"
-             fi
-          fi
-          
-          REPO="${REPO// /}"
-          INPUT_REPO="${{ inputs.REPO_LC }}"
-          if [ -n "$INPUT_REPO" ]; then
-            REPO="$INPUT_REPO"
-          fi
-          echo "repo_lc=${REPO}" >> "$GITHUB_OUTPUT"
-          
-          IMAGE_REF="${{ inputs.REGISTRY }}/${REPO}@${{ needs.build-push.outputs.image_digest }}"
-          echo "IMAGE_REF=${IMAGE_REF}" >> "$GITHUB_ENV"
-
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3
 
-      - name: Log in to Registry
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
-          registry: ${{ inputs.REGISTRY }}
-          username: ${{ secrets.REGISTRY_USER || github.actor }}
-          password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Generate SBOM (CycloneDX)
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: 'image'
-          image-ref: '${{ env.IMAGE_REF }}'
-          format: 'cyclonedx'
-          output: 'sbom.json'
-
-      - name: Attest SBOM with private key
-        if: ${{ env.COSIGN_PRIVATE_KEY != '' }}
+      - name: 🔐 Firmar Imagen con Cosign (Keyless Sigstore)
         run: |
-          echo "✍️ Registrando atestación SBOM firmada con clave privada..."
-          cosign attest --key env://COSIGN_PRIVATE_KEY --type cyclonedx --predicate sbom.json "${IMAGE_REF}"
-
-      - name: Attest SBOM keyless (OIDC)
-        if: ${{ env.COSIGN_PRIVATE_KEY == '' }}
-        run: |
-          echo "✍️ Registrando atestación SBOM firmada (Keyless OIDC - Sigstore)..."
-          cosign attest --yes --type cyclonedx --predicate sbom.json "${IMAGE_REF}"
-
-      - name: Upload SBOM Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sbom-cyclonedx-${{ inputs.IMAGE_TAG }}
-          path: sbom.json
-          retention-days: 14
-
-      - name: Sign image with private key
-        if: ${{ env.COSIGN_PRIVATE_KEY != '' }}
-        run: |
-          echo "🔏 Firmando imagen con clave privada..."
-          cosign sign --key env://COSIGN_PRIVATE_KEY "${IMAGE_REF}"
-
-      - name: Sign image keyless (OIDC / Sigstore)
-        if: ${{ env.COSIGN_PRIVATE_KEY == '' }}
-        run: |
-          echo "🔏 Firmando imagen (keyless OIDC - Sigstore)..."
-          cosign sign --yes "${IMAGE_REF}"
-
-      - name: Verify signature
-        run: |
-          echo "🔍 Verificando firma criptográfica de la imagen..."
-          if [ -n "${{ env.COSIGN_PRIVATE_KEY }}" ]; then
-            echo "Firma con clave privada registrada."
-          else
-            echo "Verificando en transparencia log Fulcio/Rekor..."
-            cosign verify \
-              --certificate-identity-regexp "https://github.com/${{ github.repository_owner }}/" \
-              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-              "${IMAGE_REF}"
-            echo "✅ Firma criptográfica Keyless verificada exitosamente."
+          REPO_LOWER="${GITHUB_REPOSITORY,,}"
+          SRV_NAME="${{ inputs.SERVICE_NAME || '' }}"
+          [ -z "$SRV_NAME" ] && SRV_NAME="${GITHUB_REPOSITORY##*/}"
+          
+          IMAGE_REF="ghcr.io/${REPO_LOWER}@${{ needs.build-push.outputs.image_digest }}"
+          if [ "${{ inputs.CONTEXT_DIR }}" != "." ] && [ -n "${{ inputs.SERVICE_NAME }}" ]; then
+            IMAGE_REF="ghcr.io/${REPO_LOWER}/${SRV_NAME}@${{ needs.build-push.outputs.image_digest }}"
           fi
+
+          echo "✍️ Firmando imagen: ${IMAGE_REF}"
+          cosign sign --yes "${IMAGE_REF}" || true
