@@ -1,0 +1,79 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: enterprise-security-guardrails
+  annotations:
+    policies.kyverno.io/title: "Enterprise Security Guardrails"
+    policies.kyverno.io/category: "Security & Governance"
+    policies.kyverno.io/severity: "high"
+    policies.kyverno.io/description: >-
+      Valida que las cargas de trabajo sigan los estándares DevSecOps:
+      prohíbe el tag :latest, exige ejecutar como non-root y límites de recursos.
+spec:
+  validationFailureAction: Audit
+  background: true
+  rules:
+    - name: disallow-latest-tag
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+                - Deployment
+                - DaemonSet
+                - StatefulSet
+                - Job
+                - CronJob
+      validate:
+        message: "Seguridad K8s: El uso del tag ':latest' o imágenes sin tag está prohibido. Utilice una versión semántica o digest SHA."
+        pattern:
+          spec:
+            =(template):
+              spec:
+                containers:
+                  - image: "!*:latest"
+
+    - name: require-run-as-non-root
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+                - Deployment
+                - DaemonSet
+                - StatefulSet
+      validate:
+        message: "Seguridad K8s: Los contenedores no deben ejecutarse como root. Especifique runAsNonRoot: true en el securityContext."
+        anyPattern:
+          - spec:
+              =(securityContext):
+                runAsNonRoot: true
+          - spec:
+              =(template):
+                spec:
+                  =(securityContext):
+                    runAsNonRoot: true
+                  containers:
+                    - =(securityContext):
+                        runAsNonRoot: true
+
+    - name: require-resource-limits
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+                - Deployment
+                - DaemonSet
+                - StatefulSet
+      validate:
+        message: "Estabilidad K8s: Debe definir límites de recursos (resources.limits.cpu y resources.limits.memory) para prevenir saturación de nodos."
+        pattern:
+          spec:
+            =(template):
+              spec:
+                containers:
+                  - resources:
+                      limits:
+                        memory: "?*"
+                        cpu: "?*"

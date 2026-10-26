@@ -1,0 +1,92 @@
+name: Utilities Release
+
+# Crea o actualiza el GitHub Release de un tag usando RELEASE_NOTES.md (IA) o la sección del CHANGELOG.md.
+
+on:
+  workflow_call:
+    inputs:
+      TAG:
+        description: 'Tag a publicar (vacío = ref actual, debe ser un tag)'
+        required: false
+        type: string
+        default: ''
+      RELEASE_NOTES_ARTIFACT:
+        description: 'Artefacto con RELEASE_NOTES.md (ej. release-notes) — opcional'
+        required: false
+        type: string
+        default: ''
+      CHANGELOG_ARTIFACT:
+        description: 'Artefacto con CHANGELOG.md (ej. changelog) — opcional'
+        required: false
+        type: string
+        default: ''
+      PRERELEASE:
+        description: 'Marcar como pre-release'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  create_release:
+    name: Publicar Release
+    runs-on: ubuntu-latest
+    if: inputs.TAG != '' || startsWith(github.ref, 'refs/tags/')
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.TAG || github.ref_name }}
+      PRERELEASE: ${{ inputs.PRERELEASE }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.TAG || github.ref }}
+
+      - uses: actions/download-artifact@v4
+        if: inputs.RELEASE_NOTES_ARTIFACT != ''
+        continue-on-error: true
+        with:
+          name: ${{ inputs.RELEASE_NOTES_ARTIFACT }}
+
+      - uses: actions/download-artifact@v4
+        if: inputs.CHANGELOG_ARTIFACT != ''
+        continue-on-error: true
+        with:
+          name: ${{ inputs.CHANGELOG_ARTIFACT }}
+          path: .
+
+      - name: Crear o actualizar release
+        run: |
+          DESC_FILE="release_notes_${RELEASE_TAG}.md"
+
+          # 1. RELEASE_NOTES.md (generado por IA o paso previo)
+          if [ -s RELEASE_NOTES.md ]; then
+            cp RELEASE_NOTES.md "$DESC_FILE"
+          elif [ -f CHANGELOG.md ]; then
+            # 2. Sección del tag (## [x.y.z])
+            TAG_CLEAN="${RELEASE_TAG#v}"
+            awk -v ver="$TAG_CLEAN" '
+              index($0, "## [" ver "]") == 1 { found=1; print; next }
+              found && /^## \[/ { exit }
+              found { print }
+            ' CHANGELOG.md > "$DESC_FILE"
+            # 3. Si no existe, el primer bloque del changelog
+            if [ ! -s "$DESC_FILE" ]; then
+              awk '/^## \[/{count++} count==1{print} count>1{exit}' CHANGELOG.md > "$DESC_FILE"
+              sed -i "s/^## \[Sin release\].*/## Release ${RELEASE_TAG}/" "$DESC_FILE"
+            fi
+          fi
+          # 4. Fallback
+          [ -s "$DESC_FILE" ] || echo "## Release ${RELEASE_TAG}" > "$DESC_FILE"
+          cat "$DESC_FILE"
+
+          FLAGS=()
+          [ "$PRERELEASE" = "true" ] && FLAGS+=(--prerelease)
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "ℹ️ El release ya existía. Actualizando notas..."
+            gh release edit "$RELEASE_TAG" --title "Release ${RELEASE_TAG}" --notes-file "$DESC_FILE" "${FLAGS[@]}"
+          else
+            gh release create "$RELEASE_TAG" --title "Release ${RELEASE_TAG}" --notes-file "$DESC_FILE" --verify-tag "${FLAGS[@]}"
+          fi
+          echo "✅ Release publicado."

@@ -1,0 +1,40 @@
+name: Security SLSA Provenance
+
+# Atestación de procedencia SLSA (build provenance firmada con Sigstore) para una imagen ya publicada.
+
+on:
+  workflow_call:
+    inputs:
+      subject-name:
+        description: 'Nombre de la imagen sin tag ni digest (ej. ghcr.io/org/app)'
+        required: true
+        type: string
+      subject-digest:
+        description: 'Digest de la imagen (sha256:...)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  provenance:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      packages: write
+    steps:
+      - name: Atestar procedencia
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ${{ inputs.subject-name }}
+          subject-digest: ${{ inputs.subject-digest }}
+          push-to-registry: true
+
+      - name: Verificar atestación
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUBJECT: ${{ inputs.subject-name }}@${{ inputs.subject-digest }}
+        run: gh attestation verify "oci://${SUBJECT}" --repo "$GITHUB_REPOSITORY"

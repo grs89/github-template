@@ -1,0 +1,54 @@
+name: Template CI
+
+# CI del propio repositorio de plantillas: lint de workflows (actionlint + shellcheck) y tests de scripts/workflows.
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/**', 'scripts/**', 'tests/**', 'policies/**', 'k8s/**']
+  pull_request:
+    paths: ['.github/workflows/**', 'scripts/**', 'tests/**', 'policies/**', 'k8s/**']
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Las llamadas entre plantillas usan `grs89/github-template/...@ref`; se reescriben a rutas locales
+      # para que actionlint valide también la firma (inputs/secrets) de cada llamada.
+      - name: Reescribir llamadas remotas a locales
+        run: |
+          sed -i -E 's#uses: grs89/github-template/(\.github/workflows/[A-Za-z0-9_.-]+)@[^ ]+#uses: ./\1#' .github/workflows/*.yml
+
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" --workdir /repo rhysd/actionlint:1.7.7 -color
+
+  tests:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            scripts/requirements.txt
+            tests/requirements-dev.txt
+
+      - name: Instalar dependencias
+        run: pip install -r tests/requirements-dev.txt "strands-agents"
+
+      - name: pytest
+        run: python -m pytest tests -q

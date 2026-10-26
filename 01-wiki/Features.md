@@ -70,3 +70,23 @@ Las plantillas de este repositorio implementan un ciclo **DevSecOps 360°** comp
 | **Limpieza de Container Registry (GHCR)** | Purga automatizada de imágenes y tags antiguos no protegidos vía GitHub REST API con `GITHUB_TOKEN`. | GHCR Cleanup |
 | **Automated Releases (Idempotente)** | Publicación y actualización automática de GitHub Releases con `CHANGELOG.md` asociado en eventos de Tag (`v*`). | GitHub Release CLI |
 | **Job Summaries Nativos** | Inyección de resultados visuales directamente en la interfaz de GitHub Actions sin descargas previas. | `$GITHUB_STEP_SUMMARY` |
+
+---
+
+## 🧩 Plantillas adicionales (portadas del catálogo GitLab)
+
+| Feature | Descripción ("¿Qué hace?") | Workflow |
+| :--- | :--- | :--- |
+| **License Compliance** | Audita licencias de dependencias Node/Python y bloquea copyleft (GPL/AGPL/…). | `security-license-compliance.yml` |
+| **Pentest agéntico con IA** | Agentes autónomos (Strix) con PoC real y SARIF a Code Scanning. | `security-strix-pentest.yml` |
+| **Policy-as-Code** | Kyverno para manifiestos K8s y OPA/Rego para planes de Terraform. | `policies-policy-as-code.yml` |
+| **Fuzzing / Mutation testing** | Go fuzz + Hypothesis; go-mutesting, Stryker, mutmut, PITest. | `test-fuzz-testing.yml`, `test-mutation-testing.yml` |
+| **Preview Environments** | Entorno efímero por Pull Request (namespace/ArgoCD/vcluster) con cuota FinOps y destrucción al cerrar. | `k8s-preview-environments.yml` |
+| **Scale up/down GitOps** | Apaga/enciende servicios editando `replicas` en el repo de infraestructura. | `k8s-scale.yml` |
+| **Chaos testing** | PodChaos (Chaos Mesh) con sondeo `/healthz` en vivo. | `observability-chaos-testing.yml` |
+| **DORA / Score / OTel** | Eventos DORA, métricas a Pushgateway y trazas OTLP del run (jobs + steps). | `observability-dora-metrics.yml`, `observability-score-exporter.yml`, `observability-otel-pipeline-traces.yml` |
+| **Terraform con aprobación** | validate → plan → apply/destroy con *required reviewers* y detección de drift. | `infrastructure-terraform.yml` |
+| **Renovate / Changelog / Release** | Actualización de dependencias, changelog git-cliff y GitHub Release con notas (IA opcional). | `utilities-renovate.yml`, `utilities-changelog.yml`, `utilities-release.yml`, `utilities-ai-release-notes.yml` |
+| **Descripción de PR y Roadmap** | Descripción/labels automáticos del PR y ROADMAP.md → Milestones/Issues. | `utilities-mr-description.yml`, `utilities-roadmap-sync.yml` |
+
+El catálogo completo con todos los inputs y secretos está en [`Workflows-Catalog.md`](Workflows-Catalog.md).

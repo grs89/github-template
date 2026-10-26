@@ -3,7 +3,7 @@ import json
 import sys
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 def convert(gitleaks_file, output_file):
     if not os.path.exists(gitleaks_file) or os.path.getsize(gitleaks_file) == 0:
@@ -22,8 +22,8 @@ def convert(gitleaks_file, output_file):
                     }
                 },
                 "type": "secret_detection",
-                "start_time": datetime.utcnow().isoformat(),
-                "end_time": datetime.utcnow().isoformat(),
+                "start_time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+                "end_time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
                 "status": "success"
             }
         }
@@ -82,8 +82,8 @@ def convert(gitleaks_file, output_file):
                 }
             },
             "type": "secret_detection",
-            "start_time": datetime.utcnow().isoformat(),
-            "end_time": datetime.utcnow().isoformat(),
+            "start_time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+            "end_time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
             "status": "success"
         }
     }

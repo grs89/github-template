@@ -33,6 +33,10 @@ jobs:
   tf_validate_and_scan:
     name: 🏗️ Validar & Escanear IaC
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      HAS_INFRACOST: ${{ secrets.INFRACOST_API_KEY != '' }}
     steps:
       - name: Checkout Código
         uses: actions/checkout@v4
@@ -51,7 +55,7 @@ jobs:
           terraform validate
 
       - name: 🛡️ Escanear IaC con Trivy
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: 'config'
           scan-ref: ${{ inputs.TF_ROOT || '.' }}
@@ -60,7 +64,7 @@ jobs:
         continue-on-error: true
 
       - name: 🛡️ Escanear IaC con Checkov
-        uses: bridgecrewio/checkov-action@master
+        uses: bridgecrewio/checkov-action@v12
         with:
           directory: ${{ inputs.TF_ROOT || '.' }}
           framework: terraform
@@ -69,7 +73,7 @@ jobs:
         continue-on-error: true
 
       - name: 💰 Infracost Cloud Cost Estimation (en PRs)
-        if: github.event_name == 'pull_request' && secrets.INFRACOST_API_KEY != ''
+        if: github.event_name == 'pull_request' && env.HAS_INFRACOST == 'true'
         uses: infracost/actions/setup@v3
         with:
           api-key: ${{ secrets.INFRACOST_API_KEY }}
@@ -87,6 +91,8 @@ jobs:
     name: 📋 Terraform Plan [${{ inputs.TARGET_ENVIRONMENT || 'production' }}]
     needs: tf_validate_and_scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     environment:
       name: ${{ inputs.TARGET_ENVIRONMENT || 'production' }}
     steps:
@@ -102,16 +108,20 @@ jobs:
         shell: bash
         working-directory: ${{ inputs.TF_ROOT || '.' }}
         run: |
-          echo "Ejecutando Terraform Plan para entorno: ${{ inputs.TARGET_ENVIRONMENT }}"
+          echo "Ejecutando Terraform Plan para entorno: ${IN_TARGET_ENVIRONMENT}"
           terraform init -backend=false
           # En pipelines reales con credenciales conectadas:
           # terraform plan -out=tfplan
 
+        env:
+          IN_TARGET_ENVIRONMENT: ${{ inputs.TARGET_ENVIRONMENT }}
   generate_report:
     name: 📊 Reporte Ejecutivo IaC
     needs: [tf_validate_and_scan, tf_plan]
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout Código
         uses: actions/checkout@v4

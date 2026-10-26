@@ -1,0 +1,70 @@
+name: Observability OTel Pipeline Traces
+
+# Exporta el run de GitHub Actions (jobs y steps, incluyendo workflows reutilizables) como trazas OTLP
+# hacia Grafana Tempo / Jaeger / OTel Collector. No bloqueante. Ejecútalo como último job (needs: [...] + if: always()).
+
+on:
+  workflow_call:
+    inputs:
+      OTEL_COLLECTOR_URL:
+        description: 'Endpoint OTLP/HTTP (ej. http://otel-collector:4318); vacío = omite'
+        required: false
+        type: string
+        default: ''
+      GRAFANA_URL:
+        description: 'URL de Grafana para generar el enlace directo a la traza'
+        required: false
+        type: string
+        default: ''
+      GRAFANA_TEMPO_DATASOURCE_NAME:
+        description: 'Nombre del datasource de Tempo en Grafana'
+        required: false
+        type: string
+        default: 'Tempo'
+      TEMPLATE_PROJECT:
+        description: 'Repo de plantillas que contiene scripts/export_otel_traces.py'
+        required: false
+        type: string
+        default: 'grs89/github-template'
+      TEMPLATE_REF:
+        description: 'Rama o tag del repo de plantillas'
+        required: false
+        type: string
+        default: 'main'
+    secrets:
+      OTEL_AUTH_TOKEN:
+        description: 'Bearer token opcional del colector'
+        required: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  generate_otel_pipeline_traces:
+    name: Exportar trazas OTel
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: inputs.OTEL_COLLECTOR_URL != ''
+    env:
+      OTEL_COLLECTOR_URL: ${{ inputs.OTEL_COLLECTOR_URL }}
+      OTEL_AUTH_TOKEN: ${{ secrets.OTEL_AUTH_TOKEN }}
+      GRAFANA_URL: ${{ inputs.GRAFANA_URL }}
+      GRAFANA_TEMPO_DATASOURCE_NAME: ${{ inputs.GRAFANA_TEMPO_DATASOURCE_NAME }}
+      GH_TOKEN: ${{ github.token }}
+      TEMPLATE_PROJECT: ${{ inputs.TEMPLATE_PROJECT }}
+      TEMPLATE_REF: ${{ inputs.TEMPLATE_REF }}
+    steps:
+      - name: Exportar telemetría
+        run: |
+          gh api -H "Accept: application/vnd.github.raw" \
+            "repos/${TEMPLATE_PROJECT}/contents/scripts/export_otel_traces.py?ref=${TEMPLATE_REF}" > "$RUNNER_TEMP/export_otel_traces.py" \
+            || { echo "::warning::No se pudo obtener export_otel_traces.py"; exit 0; }
+          python3 "$RUNNER_TEMP/export_otel_traces.py" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: grafana-trace-${{ github.run_id }}
+          path: grafana_trace.html
+          if-no-files-found: ignore

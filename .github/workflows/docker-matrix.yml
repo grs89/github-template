@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: ${{ secrets.REGISTRY || 'ghcr.io' }}
+  REGISTRY: ${{ vars.REGISTRY || 'ghcr.io' }}
   PLATFORMS: ${{ vars.DOCKER_PLATFORMS || 'linux/amd64,linux/arm64' }}
   DOCKER_MATRIX_DISABLED: ${{ vars.DOCKER_MATRIX_DISABLED || 'false' }}
 
@@ -25,17 +25,20 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.detect.outputs.matrix }}
+      repo_lc: ${{ steps.repo.outputs.repo_lc }}
     steps:
       - uses: actions/checkout@v4
+      - id: repo
+        run: echo "repo_lc=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
       - name: Detect Dockerfiles
         id: detect
         run: |
           if [ "${{ env.DOCKER_MATRIX_DISABLED }}" = "true" ]; then
-            echo "matrix={\"service\":[\".\"]}" >> $GITHUB_OUTPUT
+            echo 'matrix={"include":[{"service":"."}]}' >> $GITHUB_OUTPUT
           else
-            SERVICES=$(find . -name "Dockerfile" -type f | xargs dirname | jq -R -s -c 'split("\n") | map(select(. != "")) | map({service: .})')
+            SERVICES=$(find . -name "Dockerfile" -type f | xargs dirname | jq -R -s -c '{include: (split("\n") | map(select(. != "")) | map({service: .}))}')
             if [ -z "$SERVICES" ] || [ "$SERVICES" = "[]" ]; then
-              echo "matrix={\"service\":[\".\"]}" >> $GITHUB_OUTPUT
+              echo 'matrix={"include":[{"service":"."}]}' >> $GITHUB_OUTPUT
             else
               echo "matrix=$SERVICES" >> $GITHUB_OUTPUT
             fi
@@ -90,10 +93,12 @@ jobs:
           subject-name: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ matrix.service}}
 
   security-scan:
-    needs: build-matrix
+    needs: [detect-services, build-matrix]
     uses: ./.github/workflows/shared-security-scan.yml
     with:
-      image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ github.sha }}
+      CONTEXT_DIR: '.'
+      IMAGE_TAG: ${{ github.ref_name }}
+      REPO_LC: ${{ needs.detect-services.outputs.repo_lc }}
 
   executive-report:
     needs: security-scan

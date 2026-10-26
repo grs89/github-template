@@ -36,6 +36,8 @@ jobs:
   generate_badges:
     name: 🛡️ Generar Insignias (Badges)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: inputs.BADGE_DISABLED != true
     steps:
       - name: Checkout Código

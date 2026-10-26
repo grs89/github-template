@@ -32,12 +32,12 @@ jobs:
       - name: Verify Wiki Directory
         id: verify
         run: |
-          WIKI_DIR="${{ inputs.WIKI_DIR }}"
+          WIKI_DIR="${IN_WIKI_DIR}"
           if [ ! -d "$WIKI_DIR" ]; then
             echo "❌ Error: El directorio '$WIKI_DIR' no existe en el repositorio."
             exit 1
           fi
-          
+
           # Contar archivos markdown (.md)
           MD_COUNT=$(find "$WIKI_DIR" -maxdepth 1 -name "*.md" | wc -l)
           if [ "$MD_COUNT" -eq 0 ]; then
@@ -49,18 +49,21 @@ jobs:
           fi
           echo "dir=$WIKI_DIR" >> "$GITHUB_OUTPUT"
 
+        env:
+          IN_WIKI_DIR: ${{ inputs.WIKI_DIR }}
       - name: Sync to GitHub Wiki
         if: steps.verify.outputs.has_files == 'true'
         env:
           WIKI_TOKEN: ${{ secrets.WIKI_TOKEN || secrets.GITHUB_TOKEN }}
           DRY_RUN: ${{ inputs.DRY_RUN }}
+          OUT_DIR: ${{ steps.verify.outputs.dir }}
         run: |
           # 1. Configurar variables de repositorio y autenticación
           REPO_URL="https://x-access-token:${WIKI_TOKEN}@github.com/${{ github.repository }}.wiki.git"
           WIKI_TEMP_DIR="temp_wiki"
 
           echo "🚀 Iniciando sincronización de la Wiki..."
-          
+
           # 2. Intentar clonar la wiki existente
           if git clone "$REPO_URL" "$WIKI_TEMP_DIR"; then
             echo "✅ Repositorio de la Wiki clonado exitosamente."
@@ -82,8 +85,8 @@ jobs:
           fi
 
           # 4. Copiar los archivos markdown desde el directorio original
-          echo "📂 Copiando archivos de Wiki desde '../../${{ steps.verify.outputs.dir }}'..."
-          cp -r ../${{ steps.verify.outputs.dir }}/* .
+          echo "📂 Copiando archivos de Wiki desde '../../${OUT_DIR}'..."
+          cp -r ../${OUT_DIR}/* .
 
           # 5. Configurar información del usuario de Git
           git config user.name "github-actions[bot]"
@@ -91,7 +94,7 @@ jobs:
 
           # 6. Registrar y confirmar los cambios
           git add .
-          
+
           if git diff-index --quiet HEAD --; then
             echo "✨ No hay cambios pendientes por actualizar en la Wiki."
           else

@@ -52,6 +52,8 @@ jobs:
   detect_matrix:
     name: 🔍 Detectar Ecosistema y Monorepo
     runs-on: ${{ inputs.RUNNER_TAG || 'ubuntu-latest' }}
+    permissions:
+      contents: read
     outputs:
       has_docker: ${{ steps.detect.outputs.has_docker }}
       docker_matrix: ${{ steps.detect.outputs.docker_matrix }}
@@ -97,7 +99,7 @@ jobs:
 
           # 2. Detección de Dockerfiles
           SERVICES_FOUND=""
-          INPUT_SERVICES="${{ inputs.SERVICES }}"
+          INPUT_SERVICES="${IN_SERVICES}"
           if [ -n "$INPUT_SERVICES" ]; then
             SERVICES_FOUND="$INPUT_SERVICES"
           else
@@ -169,6 +171,8 @@ jobs:
             echo "has_gitops=false" >> "$GITHUB_OUTPUT"
           fi
 
+        env:
+          IN_SERVICES: ${{ inputs.SERVICES }}
   trigger_docker:
     name: 🚀 App [${{ matrix.service_name }}]
     needs: detect_matrix

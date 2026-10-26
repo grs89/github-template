@@ -1,0 +1,202 @@
+name: K8S Preview Environments
+
+# Entorno efímero por Pull Request (namespace | argocd | vcluster) con ResourceQuota FinOps y NetworkPolicy.
+# Úsalo desde un workflow con `on: pull_request: types: [opened, synchronize, reopened, closed]`:
+# PREVIEW_ACTION=auto despliega en opened/synchronize/reopened y destruye en closed.
+
+on:
+  workflow_call:
+    inputs:
+      PREVIEW_ACTION:
+        description: 'auto | deploy | stop'
+        required: false
+        type: string
+        default: 'auto'
+      SERVICE_NAME:
+        description: 'Nombre del servicio (monorepo)'
+        required: false
+        type: string
+        default: 'app'
+      SERVICE_PATH:
+        description: 'Directorio del servicio (para el modo argocd: <path>/k8s)'
+        required: false
+        type: string
+        default: '.'
+      PREVIEW_BASE_DOMAIN:
+        description: 'Dominio base de las URLs efímeras'
+        required: false
+        type: string
+        default: 'preview.example.com'
+      PREVIEW_NAMESPACE_PREFIX:
+        description: 'Prefijo del namespace'
+        required: false
+        type: string
+        default: 'preview-pr'
+      PREVIEW_ISOLATION_MODE:
+        description: 'namespace | argocd | vcluster'
+        required: false
+        type: string
+        default: 'namespace'
+    secrets:
+      KUBE_CONFIG:
+        description: 'kubeconfig en base64'
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    name: Preview ${{ inputs.SERVICE_NAME }}
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    environment:
+      name: review/pr-${{ github.event.pull_request.number }}-${{ inputs.SERVICE_NAME }}
+      url: https://pr-${{ github.event.pull_request.number }}-${{ inputs.SERVICE_NAME }}.${{ inputs.PREVIEW_BASE_DOMAIN }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_REF: ${{ github.event.pull_request.head.ref }}
+      EVENT_ACTION: ${{ github.event.action }}
+      PREVIEW_ACTION: ${{ inputs.PREVIEW_ACTION }}
+      SRV_NAME: ${{ inputs.SERVICE_NAME }}
+      SERVICE_PATH: ${{ inputs.SERVICE_PATH }}
+      PREVIEW_BASE_DOMAIN: ${{ inputs.PREVIEW_BASE_DOMAIN }}
+      PREVIEW_NAMESPACE_PREFIX: ${{ inputs.PREVIEW_NAMESPACE_PREFIX }}
+      PREVIEW_ISOLATION_MODE: ${{ inputs.PREVIEW_ISOLATION_MODE }}
+    steps:
+      - name: kubeconfig
+        run: |
+          umask 077
+          mkdir -p ~/.kube
+          echo "$KUBE_CONFIG" | base64 -d > ~/.kube/config
+
+      - name: Resolver acción
+        id: action
+        run: |
+          ACTION="$PREVIEW_ACTION"
+          if [ "$ACTION" = "auto" ]; then
+            if [ "$EVENT_ACTION" = "closed" ]; then ACTION=stop; else ACTION=deploy; fi
+          fi
+          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
+          echo "ns=${PREVIEW_NAMESPACE_PREFIX}-${PR_NUMBER}-${SRV_NAME}" >> "$GITHUB_OUTPUT"
+          echo "url=https://pr-${PR_NUMBER}-${SRV_NAME}.${PREVIEW_BASE_DOMAIN}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.action.outputs.action == 'deploy' && inputs.PREVIEW_ISOLATION_MODE == 'argocd'
+
+      - name: Desplegar entorno efímero
+        if: steps.action.outputs.action == 'deploy'
+        env:
+          TARGET_NS: ${{ steps.action.outputs.ns }}
+          PREVIEW_URL: ${{ steps.action.outputs.url }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}.git
+        run: |
+          echo "🚀 Preview ${SRV_NAME} → ${PREVIEW_URL} (ns ${TARGET_NS}, modo ${PREVIEW_ISOLATION_MODE})"
+          case "$PREVIEW_ISOLATION_MODE" in
+            namespace)
+              kubectl create namespace "${TARGET_NS}" --dry-run=client -o yaml | kubectl apply -f -
+              cat <<EOF | kubectl apply -n "${TARGET_NS}" -f -
+          apiVersion: v1
+          kind: ResourceQuota
+          metadata:
+            name: preview-quota
+          spec:
+            hard:
+              requests.cpu: "500m"
+              requests.memory: "512Mi"
+              limits.cpu: "1"
+              limits.memory: "1Gi"
+              pods: "5"
+          ---
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: default-deny-external-except-ingress
+          spec:
+            podSelector: {}
+            policyTypes:
+            - Ingress
+            ingress:
+            - from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: ingress-nginx
+          EOF
+              ;;
+            argocd)
+              cat <<EOF | kubectl apply -n argocd -f -
+          apiVersion: argoproj.io/v1alpha1
+          kind: Application
+          metadata:
+            name: "preview-${PR_NUMBER}-${SRV_NAME}"
+            namespace: argocd
+            labels:
+              environment: preview
+              pr-number: "${PR_NUMBER}"
+          spec:
+            project: default
+            source:
+              repoURL: "${REPO_URL}"
+              targetRevision: "${PR_REF}"
+              path: "${SERVICE_PATH}/k8s"
+            destination:
+              server: "https://kubernetes.default.svc"
+              namespace: "${TARGET_NS}"
+            syncPolicy:
+              automated:
+                prune: true
+                selfHeal: true
+          EOF
+              ;;
+            vcluster)
+              kubectl create namespace "${TARGET_NS}" --dry-run=client -o yaml | kubectl apply -f -
+              if command -v vcluster >/dev/null 2>&1; then
+                vcluster create "vc-${PR_NUMBER}-${SRV_NAME}" -n "${TARGET_NS}" --connect=false || true
+              else
+                echo "::warning::vcluster CLI no disponible en el runner; solo se creó el namespace."
+              fi
+              ;;
+            *) echo "::error::PREVIEW_ISOLATION_MODE inválido: ${PREVIEW_ISOLATION_MODE}"; exit 1 ;;
+          esac
+
+      - name: Destruir entorno efímero
+        if: steps.action.outputs.action == 'stop'
+        env:
+          TARGET_NS: ${{ steps.action.outputs.ns }}
+        run: |
+          echo "🧹 Destruyendo ${TARGET_NS}"
+          case "$PREVIEW_ISOLATION_MODE" in
+            argocd)  kubectl delete application "preview-${PR_NUMBER}-${SRV_NAME}" -n argocd --ignore-not-found=true || true ;;
+            vcluster) command -v vcluster >/dev/null 2>&1 && { vcluster delete "vc-${PR_NUMBER}-${SRV_NAME}" -n "${TARGET_NS}" || true; } ;;
+          esac
+          kubectl delete namespace "${TARGET_NS}" --ignore-not-found=true
+
+      - name: Comentar en el Pull Request
+        env:
+          ACTION: ${{ steps.action.outputs.action }}
+          TARGET_NS: ${{ steps.action.outputs.ns }}
+          PREVIEW_URL: ${{ steps.action.outputs.url }}
+        run: |
+          MARKER="<!-- preview-env:${SRV_NAME} -->"
+          if [ "$ACTION" = "deploy" ]; then
+            BODY="${MARKER}
+          ### 🚀 Preview Environment — \`${SRV_NAME}\`
+          - 🌐 URL: ${PREVIEW_URL}
+          - 🏷️ Namespace: \`${TARGET_NS}\`
+          - 🔒 Aislamiento: \`${PREVIEW_ISOLATION_MODE}\`"
+          else
+            BODY="${MARKER}
+          ### 🧹 Preview Environment destruido — \`${SRV_NAME}\`
+          Recursos liberados (\`${TARGET_NS}\`)."
+          fi
+          BODY=$(sed 's/^          //' <<< "$BODY")
+          ID=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
+            --jq "map(select(.body | startswith(\"${MARKER}\"))) | .[0].id // empty")
+          if [ -n "$ID" ]; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${ID}" -f body="$BODY" > /dev/null
+          else
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          fi

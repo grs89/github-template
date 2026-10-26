@@ -1,0 +1,103 @@
+name: Utilities Notifications
+
+# Notifica a Google Chat el resultado del pipeline (con resumen de release/componentes si existen).
+# Úsalo como último job: needs: [...] y if: always(), pasando STATUS: ${{ needs.<job>.result }}.
+
+on:
+  workflow_call:
+    inputs:
+      STATUS:
+        description: 'success | failure (cualquier otro valor se trata como failure)'
+        required: false
+        type: string
+        default: 'success'
+      NOTIFY_ONLY_ON_TAGS_SUCCESS:
+        description: 'true = en éxito solo notifica en tags (los fallos siempre notifican)'
+        required: false
+        type: boolean
+        default: true
+      RELEASE_ARTIFACT:
+        description: 'Artefacto con release_info.yml (opcional)'
+        required: false
+        type: string
+        default: ''
+      RELEASE_FILE:
+        description: 'Archivo de release dentro del artefacto'
+        required: false
+        type: string
+        default: 'release_info.yml'
+      COMPONENT_ARTIFACT:
+        description: 'Artefacto con component.yml (opcional)'
+        required: false
+        type: string
+        default: ''
+      COMPONENT_FILE:
+        description: 'Archivo de componentes dentro del artefacto'
+        required: false
+        type: string
+        default: 'component.yml'
+    secrets:
+      GOOGLE_CHAT_WEBHOOK:
+        description: 'Webhook de Google Chat'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    name: Notificar a Google Chat
+    runs-on: ubuntu-latest
+    if: inputs.STATUS != 'success' || !inputs.NOTIFY_ONLY_ON_TAGS_SUCCESS || startsWith(github.ref, 'refs/tags/')
+    env:
+      GOOGLE_CHAT_WEBHOOK: ${{ secrets.GOOGLE_CHAT_WEBHOOK }}
+      JOB_STATUS: ${{ inputs.STATUS }}
+      RELEASE_FILE: ${{ inputs.RELEASE_FILE }}
+      COMPONENT_FILE: ${{ inputs.COMPONENT_FILE }}
+      COMMIT_TITLE: ${{ github.event.head_commit.message || github.event.pull_request.title || github.sha }}
+      PIPELINE_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      REPO_NAME: ${{ github.event.repository.name }}
+    steps:
+      - uses: actions/download-artifact@v4
+        if: inputs.RELEASE_ARTIFACT != ''
+        continue-on-error: true
+        with:
+          name: ${{ inputs.RELEASE_ARTIFACT }}
+
+      - uses: actions/download-artifact@v4
+        if: inputs.COMPONENT_ARTIFACT != ''
+        continue-on-error: true
+        with:
+          name: ${{ inputs.COMPONENT_ARTIFACT }}
+
+      - name: Enviar notificación
+        run: |
+          if [ -z "$GOOGLE_CHAT_WEBHOOK" ]; then
+            echo "::warning::GOOGLE_CHAT_WEBHOOK no está configurado. Saltando notificación."
+            exit 0
+          fi
+          if [ "$JOB_STATUS" = "success" ]; then EMOJI="✅"; TEXT="Pipeline exitoso"; else EMOJI="❌"; TEXT="Pipeline fallido"; fi
+
+          WIDGETS=$(jq -n --arg commit "${COMMIT_TITLE%%$'\n'*}" --arg autor "$GITHUB_ACTOR" \
+            '[{keyValue: {topLabel: "Commit", content: $commit}}, {keyValue: {topLabel: "Autor", content: $autor}}]')
+
+          if [ -f "$RELEASE_FILE" ]; then
+            ENV=$(grep '^environment:' "$RELEASE_FILE" | cut -d'"' -f2)
+            UPDATE=$(grep '^last_update:' "$RELEASE_FILE" | cut -d'"' -f2)
+            SERVICES=$(sed -n '/microservicios:/,$p' "$RELEASE_FILE" | grep -v 'microservicios:' | sed 's/^  //g' | awk '{print "📦 " $0 "<br>"}' | tr -d '\n')
+            SUMMARY=$(printf '<b>🚀 Resumen de Release</b><br>Entorno: %s<br>Actualizado: %s<br>Servicios:<br>%s' "$ENV" "$UPDATE" "$SERVICES")
+            WIDGETS=$(jq --arg c "$SUMMARY" '. += [{textParagraph: {text: $c}}]' <<< "$WIDGETS")
+          fi
+          if [ -f "$COMPONENT_FILE" ]; then
+            COMP_ENV=$(head -n 1 "$COMPONENT_FILE" | sed 's/://')
+            COMP_LIST=$(grep 'version:' "$COMPONENT_FILE" -B 2 | grep -v 'version:\|repo:\|--' | sed 's/^[[:space:]]*- //;s/://' | awk '{print "🔹 " $0 "<br>"}' | tr -d '\n')
+            COMP=$(printf '<b>🌐 Entrega Externa</b><br>Entorno: %s<br>Componentes Enviados:<br>%s' "$COMP_ENV" "$COMP_LIST")
+            WIDGETS=$(jq --arg c "$COMP" '. += [{textParagraph: {text: $c}}]' <<< "$WIDGETS")
+          fi
+          WIDGETS=$(jq --arg url "$PIPELINE_URL" '. += [{buttons: [{textButton: {text: "VER PIPELINE", onClick: {openLink: {url: $url}}}}]}]' <<< "$WIDGETS")
+
+          PAYLOAD=$(jq -n --arg title "${EMOJI} ${REPO_NAME}: ${TEXT}" \
+            --arg subtitle "Run #${GITHUB_RUN_NUMBER} - Rama: ${GITHUB_REF_NAME}" --argjson widgets "$WIDGETS" \
+            '{cards: [{header: {title: $title, subtitle: $subtitle}, sections: [{widgets: $widgets}]}]}')
+          curl -sS --fail-with-body -X POST -H 'Content-Type: application/json' --data "$PAYLOAD" "$GOOGLE_CHAT_WEBHOOK" > /dev/null \
+            && echo "✅ Notificación enviada."

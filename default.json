@@ -1,0 +1,129 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "Preset compartido de GitHub DevSecOps Templates. Úselo desde cualquier proyecto con: { \"extends\": [\"github>grs89/github-template\"] }",
+  "extends": [
+    "config:best-practices",
+    ":timezone(America/Bogota)",
+    ":dependencyDashboard"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "automerge": false,
+  "platformAutomerge": false,
+  "separateMajorMinor": true,
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 5,
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": {
+    "labels": [
+      "dependencies",
+      "security"
+    ],
+    "groupName": null,
+    "prBodyNotes": [
+      "🔒 **Seguridad — corrige una vulnerabilidad conocida (CVE).** Fusionar con prioridad; el nivel de riesgo de abajo indica cuánto hay que probar."
+    ]
+  },
+  "packageRules": [
+    {
+      "description": "Las versiones extraidas de los Dockerfiles son CADENAS usadas para construir una URL de descarga, no imagenes que se ejecuten. Pinear su digest rompe la deteccion: docker:pinDigests intenta resolver el tag '0.22.1' cuando en el registry es 'v0.22.1', recibe un 404 y descarta la actualizacion.",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "**/Dockerfile*"
+      ],
+      "pinDigests": false
+    },
+    {
+      "description": "Todas las actualizaciones se agrupan. Con separateMajorMinor quedan DOS Merge Requests: 'renovate/all' (minor+patch+digest, revision rapida) y 'renovate/major-all' (saltos de version mayor, revision con calma). Ninguno se fusiona solo.",
+      "matchPackageNames": [
+        "*"
+      ],
+      "matchUpdateTypes": [
+        "major",
+        "minor",
+        "patch",
+        "pin",
+        "digest",
+        "pinDigest",
+        "bump",
+        "replacement"
+      ],
+      "groupName": "todas las dependencias",
+      "groupSlug": "all",
+      "automerge": false
+    },
+    {
+      "description": "Nivel de riesgo en la descripcion del MR: major = alto.",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "prBodyNotes": [
+        "⚠️ **Riesgo ALTO — versión mayor.** Puede traer cambios incompatibles: lee las notas de versión de cada paquete, confirma que el pipeline pase completo y pruébalo en un entorno antes de fusionar."
+      ]
+    },
+    {
+      "description": "Nivel de riesgo: un paquete sustituido por otro = medio.",
+      "matchUpdateTypes": [
+        "replacement"
+      ],
+      "prBodyNotes": [
+        "🔁 **Riesgo MEDIO — paquete reemplazado.** El paquete cambia de nombre u origen: revisa que la API que usas siga igual."
+      ]
+    },
+    {
+      "description": "Nivel de riesgo: minor, patch, digest y pin = bajo.",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest",
+        "pinDigest",
+        "bump"
+      ],
+      "prBodyNotes": [
+        "✅ **Riesgo BAJO — minor, patch o digest.** Cambios compatibles: basta con que el pipeline pase y una revisión rápida."
+      ]
+    },
+    {
+      "description": "Anula el packageRule de docker:pinDigests que hereda config:best-practices. Ese preset intenta anadir @sha256 a ~77 referencias de imagen; la rama fallaba ('Error updating branch: update failure') y arrastraba con ella las actualizaciones minor/patch, que nunca llegaban a crear su MR. Va al final: los packageRules se aplican en orden y el ultimo gana.",
+      "matchDatasources": [
+        "docker"
+      ],
+      "pinDigests": false
+    },
+    {
+      "description": "Solo los FROM de los Dockerfiles se fijan por digest: Debian/Alpine publican los parches con el mismo tag y sin digest Renovate no ve la imagen base corregida. Va despues de la regla que desactiva pinDigests para todo docker (el ultimo gana); las image: de las plantillas siguen sin digest.",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "pinDigests": true
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Imagenes declaradas en variables *_IMAGE de plantillas CI. El manager github-actions solo lee la clave 'image:'.",
+      "managerFilePatterns": [
+        "/\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "[A-Z0-9_]*IMAGE:\\s*\"(?<depName>[a-z0-9][a-z0-9._\\-]*(?:/[a-z0-9._\\-]+)*):(?<currentValue>[\\w][\\w.\\-]*)\""
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Versiones de herramientas fijadas con ENV/ARG en Dockerfiles. El manager 'dockerfile' NO interpreta los comentarios '# renovate:' sobre ENV/ARG.",
+      "managerFilePatterns": [
+        "/(^|/)Dockerfile[^/]*$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>[a-z-]+)\\s+depName=(?<depName>\\S+)\\s*\\n\\s*(?:ENV|ARG)\\s+\\w+=\"?(?<currentValue>[^\"\\s]+)\"?"
+      ],
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    }
+  ]
+}

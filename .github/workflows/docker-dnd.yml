@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: ${{ secrets.REGISTRY || 'ghcr.io' }}
+  REGISTRY: ${{ vars.REGISTRY || 'ghcr.io' }}
   IMAGE_NAME: ${{ vars.IMAGE_NAME || github.event.repository.name }}
 
 concurrency:
@@ -23,11 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       language: ${{ steps.detect.outputs.language }}
+      repo_lc: ${{ steps.detect.outputs.repo_lc }}
     steps:
       - uses: actions/checkout@v4
       - name: Detect Language
         id: detect
         run: |
+          echo "repo_lc=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
           if [ -f "pom.xml" ]; then
             echo "language=java" >> $GITHUB_OUTPUT
           elif [ -f "package.json" ]; then
@@ -42,7 +44,8 @@ jobs:
     needs: detect
     uses: ./.github/workflows/shared-lint-test.yml
     with:
-      language: ${{ needs.detect.outputs.language }}
+      DETECTED_LANG: ${{ needs.detect.outputs.language }}
+      CONTEXT_DIR: '.'
 
   build:
     needs: check
@@ -76,14 +79,18 @@ jobs:
       - name: Build
         run: |
           docker buildx build \
-            --tag ${{ steps.meta.outputs.tags }} \
+            --tag ${OUT_TAGS} \
             --load \
             .
 
+        env:
+          OUT_TAGS: ${{ steps.meta.outputs.tags }}
       - name: Test image
         run: |
-          docker run --rm ${{ steps.meta.outputs.tags }} --version || true
+          docker run --rm ${OUT_TAGS} --version || true
 
+        env:
+          OUT_TAGS: ${{ steps.meta.outputs.tags }}
   push:
     needs: build
     runs-on: ubuntu-latest
@@ -116,15 +123,20 @@ jobs:
       - name: Push
         run: |
           docker buildx build \
-            --tag ${{ steps.meta.outputs.tags }} \
+            --tag ${OUT_TAGS} \
             --push \
             .
 
+        env:
+          OUT_TAGS: ${{ steps.meta.outputs.tags }}
   security:
-    needs: push
+    needs: [detect, push]
     uses: ./.github/workflows/shared-security-scan.yml
     with:
-      image: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+      CONTEXT_DIR: '.'
+      IMAGE_TAG: ${{ github.ref_name }}
+      REPO_LC: ${{ needs.detect.outputs.repo_lc }}
+      DETECTED_LANG: ${{ needs.detect.outputs.language }}
 
   report:
     needs: security

@@ -1,0 +1,65 @@
+name: Utilities Renovate
+
+# Renovate self-hosted: mantiene al día imágenes de contenedor y dependencias abriendo Pull Requests (sin automerge).
+# Úsalo con schedule/workflow_dispatch. Si prefieres la GitHub App oficial de Renovate, no necesitas este workflow.
+# El preset compartido vive en renovate.json de este repo: { "extends": ["github>grs89/github-template"] }
+
+on:
+  workflow_call:
+    inputs:
+      RENOVATE_ENABLED:
+        description: 'false para desactivarlo en un proyecto'
+        required: false
+        type: string
+        default: 'true'
+      RENOVATE_IMAGE:
+        description: 'Imagen de Renovate'
+        required: false
+        type: string
+        default: 'renovate/renovate:44'
+      RENOVATE_LOG_LEVEL:
+        description: 'Nivel de log'
+        required: false
+        type: string
+        default: 'info'
+      RENOVATE_DRY_RUN:
+        description: "Simulación (extract | lookup | full); vacío = ejecución real"
+        required: false
+        type: string
+        default: ''
+    secrets:
+      RENOVATE_TOKEN:
+        description: 'PAT / token de GitHub App con contents + pull-requests (GITHUB_TOKEN no dispara checks en los PRs que crea)'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  renovate:
+    name: Renovate
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: inputs.RENOVATE_ENABLED == 'true'
+    env:
+      RENOVATE_TOKEN: ${{ secrets.RENOVATE_TOKEN }}
+      RENOVATE_IMAGE: ${{ inputs.RENOVATE_IMAGE }}
+      LOG_LEVEL: ${{ inputs.RENOVATE_LOG_LEVEL }}
+      RENOVATE_DRY_RUN: ${{ inputs.RENOVATE_DRY_RUN }}
+    steps:
+      - name: Ejecutar Renovate
+        run: |
+          if [ -z "$RENOVATE_TOKEN" ]; then
+            echo "::warning::Renovate OMITIDO: falta el secret RENOVATE_TOKEN (GITHUB_TOKEN no puede disparar CI en los PRs que crea)."
+            exit 0
+          fi
+          DRY=()
+          [ -n "$RENOVATE_DRY_RUN" ] && DRY=(-e "RENOVATE_DRY_RUN=${RENOVATE_DRY_RUN}")
+          docker run --rm \
+            -e RENOVATE_TOKEN -e LOG_LEVEL \
+            -e RENOVATE_PLATFORM=github \
+            -e RENOVATE_GIT_AUTHOR="Renovate Bot <renovate@users.noreply.github.com>" \
+            -e RENOVATE_PR_HOURLY_LIMIT=0 \
+            -e RENOVATE_ONBOARDING_CONFIG='{"$schema":"https://docs.renovatebot.com/renovate-schema.json","extends":["github>grs89/github-template"]}' \
+            "${DRY[@]}" \
+            "$RENOVATE_IMAGE" "$GITHUB_REPOSITORY"

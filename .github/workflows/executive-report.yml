@@ -1,12 +1,23 @@
 name: 📊 Executive Report
 
+# Consolida los reportes de seguridad de la corrida (artefactos *report*) en un reporte ejecutivo HTML/PDF.
+
 on:
   workflow_call:
+    inputs:
+      REPORTS_ARTIFACT_PATTERN:
+        description: 'Patrón de artefactos con reportes a consolidar'
+        required: false
+        type: string
+        default: '*report*'
+      TEMPLATE_PROJECT:
+        description: 'Repo de plantillas con .github/utilidades/generate_report.py'
+        required: false
+        type: string
+        default: 'grs89/github-template'
 
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: read
 
 jobs:
   generate-report:
@@ -14,34 +25,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v4
+      - uses: actions/checkout@v4
         with:
-          python-version: '3.11'
+          repository: ${{ inputs.TEMPLATE_PROJECT }}
+          path: github-template-utils
 
-      - name: Install dependencies
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: ${{ inputs.REPORTS_ARTIFACT_PATTERN }}
+          merge-multiple: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generar reporte ejecutivo
         run: |
-          pip install -r utilidades/requirements.txt
+          pip install --quiet jinja2 weasyprint
+          python github-template-utils/.github/utilidades/generate_report.py
 
-      - name: Generate Executive Dashboard
-        run: |
-          python utilidades/generate_report.py
-
-      - name: Upload HTML Report
+      - name: Subir reporte
         uses: actions/upload-artifact@v4
         with:
-          name: executive-dashboard
-          path: utilidades/dashboard.html
+          name: executive-report
+          path: |
+            security-report*.html
+            security-report*.pdf
+          if-no-files-found: warn
 
-      - name: Deploy to GitHub Pages
-        if: github.ref == 'refs/heads/main'
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: utilidades/
-          publish_branch: gh-pages
-
-      - name: Create Summary
+      - name: Resumen
         run: |
-          echo "## 📊 Executive Dashboard Generated" >> $GITHUB_STEP_SUMMARY
-          echo "View the full report: [HTML Dashboard](https://YOUR_USERNAME.github.io/github-template/dashboard.html)" >> $GITHUB_STEP_SUMMARY
+          {
+            echo "## 📊 Executive Report generado"
+            echo "Descarga el artefacto **executive-report** de esta ejecución."
+          } >> "$GITHUB_STEP_SUMMARY"

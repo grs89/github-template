@@ -31,6 +31,9 @@ jobs:
   cleanup_ghcr:
     name: 🧹 Cleanup Container Registry (GHCR)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     continue-on-error: true
     if: inputs.CLEANUP_DISABLED != true
     steps:

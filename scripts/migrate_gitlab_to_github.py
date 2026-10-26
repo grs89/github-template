@@ -1,3 +1,14 @@
+"""DEPRECATED — no volver a ejecutar.
+
+Generaba traducciones mecánicas (inputs vacíos, `image: $VAR`, `exit 0` por step) que no funcionan en GitHub Actions.
+Las plantillas de .github/workflows/ ya fueron reescritas a mano como workflows reutilizables nativos y están
+cubiertas por tests/. Ejecutar este script SOBRESCRIBIRÍA esos workflows con las versiones rotas.
+"""
+import sys
+
+if __name__ == "__main__":
+    sys.exit("migrate_gitlab_to_github.py está obsoleto y sobrescribiría workflows ya portados; no se ejecuta.")
+
 import os
 import glob
 import yaml

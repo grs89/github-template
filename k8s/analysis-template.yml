@@ -1,0 +1,19 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: http-success-rate-template
+  namespace: ${K8S_NAMESPACE}
+spec:
+  metrics:
+  - name: request-success-rate
+    interval: 30s
+    duration: 5m
+    successCondition: result[0] >= 0.95
+    failureLimit: 2
+    provider:
+      prometheus:
+        address: http://prometheus-k8s.monitoring.svc.cluster.local:9090
+        query: |
+          sum(rate(http_requests_total{status=~"2.*",app="{{args.service-name}}"}[1m]))
+          /
+          sum(rate(http_requests_total{app="{{args.service-name}}"}[1m]))

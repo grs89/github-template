@@ -1,0 +1,189 @@
+name: Utilities Dependency Update
+on:
+  workflow_call:
+    inputs:
+      DEPUPDATE_DISABLED:
+        description: Deshabilitar el chequeo
+        required: false
+        type: string
+        default: 'false'
+      SERVICE_PATH:
+        description: Servicio (monorepo); '.' autodetecta servicios con Dockerfile
+        required: false
+        type: string
+        default: .
+      SECURITY_FAIL_ON_FINDINGS:
+        description: true = una vulnerabilidad conocida bloquea el job
+        required: false
+        type: string
+        default: 'true'
+permissions:
+  contents: read
+jobs:
+  dependency_update:
+    name: Dependency update check
+    runs-on: ubuntu-latest
+    if: inputs.DEPUPDATE_DISABLED != 'true'
+    env:
+      SERVICE_PATH: ${{ inputs.SERVICE_PATH }}
+      SECURITY_FAIL_ON_FINDINGS: ${{ inputs.SECURITY_FAIL_ON_FINDINGS }}
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - uses: actions/setup-go@v5
+      if: hashFiles('**/go.mod') != ''
+      with:
+        go-version: stable
+    - name: Dependency update check
+      run: |
+        echo "═══════════════════════════════════"
+        echo "📦 Dependency Update Check"
+        echo "═══════════════════════════════════"
+
+        # 🔄 Autodescubrimiento dinámico de servicios (Modo Directo / Monorepo)
+        if [ "$SERVICE_PATH" = "." ] || [ -z "$SERVICE_PATH" ]; then
+          DETECTED_SERVICES=$(find . -maxdepth 2 -type f -iname 'dockerfile' -exec dirname {} \; | sed 's|^\./||' | sort -u | xargs)
+          if [ -n "$DETECTED_SERVICES" ] && [ "$DETECTED_SERVICES" != "." ]; then
+            SERVICES="$DETECTED_SERVICES"
+            echo "🔍 Modo directo detectado. Autodetectados servicios para dependencias: $SERVICES"
+          else
+            SERVICES="."
+          fi
+        else
+          SERVICES="$SERVICE_PATH"
+        fi
+
+        OUTDATED_COUNT=0
+        REPORT="[]"
+        VULN_TOTAL=0             # dependencias Python con vulnerabilidades conocidas (pip-audit)
+        AUDIT_ERRORS=0           # auditorias que no produjeron resultado: el reporte no puede decir "sin vulnerabilidades"
+        AUDIT_FAILED_SERVICES=""
+
+        for SERVICE in $SERVICES; do
+          echo "👉 Analizando dependencias en: $SERVICE"
+          if [ "$SERVICE" != "." ]; then
+            cd "${GITHUB_WORKSPACE}/$SERVICE"
+          fi
+
+          # ═══════════ Node.js ═══════════
+          if [ -f "package.json" ]; then
+            echo "📦 Node.js: verificando dependencias..."
+            npm outdated --json 2>/dev/null > /tmp/npm-outdated.json || true  # best-effort: npm outdated sale con 1 cuando hay paquetes desactualizados (caso normal)
+            if [ -s /tmp/npm-outdated.json ] && [ "$(cat /tmp/npm-outdated.json)" != "{}" ]; then
+              echo "  📋 Dependencias desactualizadas en $SERVICE:"
+              NPM_COUNT=$(jq 'length' /tmp/npm-outdated.json)
+              OUTDATED_COUNT=$((OUTDATED_COUNT + NPM_COUNT))
+              jq -r 'to_entries[] | "  ⚠️ \(.key): \(.value.current) → \(.value.latest)"' /tmp/npm-outdated.json
+              NPM_REPORT=$(jq --arg svc "$SERVICE" '[to_entries[] | {
+                package: .key,
+                current: .value.current,
+                latest: .value.latest,
+                type: "npm",
+                service: $svc
+              }]' /tmp/npm-outdated.json)
+              REPORT=$(echo "$REPORT" | jq --argjson new "$NPM_REPORT" '. + $new')
+            else
+              echo "  ✅ Todas las dependencias están al día."
+            fi
+          fi
+
+          # ═══════════ Python ═══════════
+          if [ -f "requirements.txt" ]; then
+            echo "🐍 Python: verificando dependencias..."
+            pip install --quiet pip-audit 2>/dev/null || true  # best-effort: si falla se avisa abajo
+            if command -v pip-audit >/dev/null 2>&1; then
+              rm -f /tmp/pip-audit.json
+              pip-audit -r requirements.txt --format json 2>/tmp/pip-audit.err > /tmp/pip-audit.json || true  # best-effort: pip-audit sale distinto de 0 cuando hay vulnerabilidades; su JSON se valida abajo
+              # Un JSON ausente, vacío o sin 'dependencies' no es "0 vulnerabilidades": la auditoría no se hizo.
+              if [ -s /tmp/pip-audit.json ] && VULN_COUNT=$(jq '[.dependencies[] | select(.vulns | length > 0)] | length' /tmp/pip-audit.json 2>/dev/null) && [ -n "$VULN_COUNT" ]; then
+                if [ "$VULN_COUNT" -gt 0 ]; then
+                  echo "  ⚠️ ${VULN_COUNT} dependencias con vulnerabilidades."
+                  OUTDATED_COUNT=$((OUTDATED_COUNT + VULN_COUNT))
+                  VULN_TOTAL=$((VULN_TOTAL + VULN_COUNT))
+                fi
+              else
+                echo "⚠️ pip-audit no produjo un resultado válido: NO se auditaron las vulnerabilidades de Python en ${SERVICE}."
+                tail -n 3 /tmp/pip-audit.err
+                AUDIT_ERRORS=$((AUDIT_ERRORS + 1)); AUDIT_FAILED_SERVICES="${AUDIT_FAILED_SERVICES} ${SERVICE}"
+              fi
+            else
+              echo "⚠️ pip-audit no está disponible: NO se auditaron las vulnerabilidades de Python en ${SERVICE}."
+              AUDIT_ERRORS=$((AUDIT_ERRORS + 1)); AUDIT_FAILED_SERVICES="${AUDIT_FAILED_SERVICES} ${SERVICE}"
+            fi
+            # Verificar versiones más recientes
+            while IFS= read -r line; do
+              PKG=$(echo "$line" | sed -E 's/([a-zA-Z0-9_-]+).*/\1/')
+              if [ -n "$PKG" ] && [ "$PKG" != "#" ]; then
+                LATEST=$(pip index versions "$PKG" 2>/dev/null | head -1 | sed -E 's/.*\(([^)]+)\).*/\1/' || echo "")  # best-effort: 'pip index' es experimental; sin versión no se compara ese paquete
+                CURRENT=$(echo "$line" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' || echo "")  # best-effort: una línea sin versión fijada no se compara
+                if [ -n "$LATEST" ] && [ -n "$CURRENT" ] && [ "$LATEST" != "$CURRENT" ]; then
+                  echo "  ⚠️ ${PKG}: ${CURRENT} → ${LATEST}"
+                  OUTDATED_COUNT=$((OUTDATED_COUNT + 1))
+                fi
+              fi
+            done < requirements.txt 2>/dev/null || true  # best-effort: consulta opcional de versiones
+          fi
+
+          # ═══════════ Go ═══════════
+          if [ -f "go.mod" ]; then
+            echo "🐹 Go: verificando dependencias..."
+            go list -m -u all 2>/dev/null | grep '\[' > /tmp/go-outdated.txt || true  # best-effort: grep sale con 1 si no hay módulos desactualizados
+            if [ -s /tmp/go-outdated.txt ]; then
+              GO_COUNT=$(wc -l < /tmp/go-outdated.txt)
+              OUTDATED_COUNT=$((OUTDATED_COUNT + GO_COUNT))
+              echo "  ⚠️ ${GO_COUNT} módulos con actualizaciones disponibles:"
+              head -20 /tmp/go-outdated.txt | while read -r line; do
+                echo "  $line"
+              done
+            else
+              echo "  ✅ Todos los módulos están al día."
+            fi
+          fi
+
+          # ═══════════ Java (Maven) ═══════════
+          if [ -f "pom.xml" ]; then
+            echo "☕ Java Maven: verificando dependencias..."
+            echo "  ℹ️ Usa 'mvn versions:display-dependency-updates' localmente."
+          fi
+
+          cd "${GITHUB_WORKSPACE}"
+        done
+
+        # ═══════════ Reporte ═══════════
+        if [ "$AUDIT_ERRORS" -gt 0 ]; then
+          REPORT=$(echo "$REPORT" | jq --arg s "$AUDIT_FAILED_SERVICES" '. + [{package: "(auditoría incompleta)", current: "N/A", latest: "N/A", type: "python", scan_incomplete: true, services: $s}]')
+        fi
+        echo "$REPORT" > dependency-report.json
+        echo ""
+        echo "═══════════════════════════════════"
+        echo "📊 Resumen"
+        echo "  📦 Dependencias desactualizadas: ${OUTDATED_COUNT}"
+        echo "  🔴 Con vulnerabilidades:         ${VULN_TOTAL}"
+        echo "═══════════════════════════════════"
+        # Desactualizada no es hallazgo; con una vulnerabilidad conocida, sí
+        FINDINGS=$VULN_TOTAL
+        if [ "$FINDINGS" -gt 0 ]; then
+          if [ "${SECURITY_FAIL_ON_FINDINGS:-true}" = "true" ]; then
+            echo "❌ ${FINDINGS} hallazgo(s) que bloquean el pipeline. Para dejarlo solo en aviso: SECURITY_FAIL_ON_FINDINGS=false."
+            exit 1
+          fi
+          echo "::warning::${FINDINGS} hallazgo(s); SECURITY_FAIL_ON_FINDINGS=false: solo aviso."
+          exit 0
+        fi
+        if [ "$AUDIT_ERRORS" -gt 0 ]; then
+          echo "⚠️ La auditoría de vulnerabilidades quedó incompleta en:${AUDIT_FAILED_SERVICES}"
+          echo "   El resultado no es fiable: no se puede afirmar que no haya vulnerabilidades."
+          exit 0
+        fi
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: dependency-report
+        path: dependency-report.json
+        if-no-files-found: ignore
+        retention-days: 7

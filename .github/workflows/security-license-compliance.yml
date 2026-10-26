@@ -1,0 +1,191 @@
+name: Security License Compliance
+
+# Audita las licencias de las dependencias (Node, Python; lista Go/Java para revisión manual)
+# y bloquea licencias copyleft restrictivas.
+
+on:
+  workflow_call:
+    inputs:
+      LICENSE_DISABLED:
+        description: 'Deshabilitar la auditoría de licencias'
+        required: false
+        type: string
+        default: 'false'
+      SERVICES:
+        description: 'Directorios a auditar separados por espacio (monorepo)'
+        required: false
+        type: string
+        default: '.'
+      LICENSE_ALLOWED:
+        description: 'Licencias permitidas (SPDX, separadas por coma)'
+        required: false
+        type: string
+        default: 'MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,0BSD,Unlicense,CC0-1.0,WTFPL,Zlib,BlueOak-1.0.0,Python-2.0,PSF-2.0'
+      LICENSE_BLOCKED:
+        description: 'Licencias bloqueadas (SPDX, separadas por coma)'
+        required: false
+        type: string
+        default: 'GPL-2.0,GPL-3.0,AGPL-3.0,LGPL-2.1,LGPL-3.0,SSPL-1.0,EUPL-1.1,EUPL-1.2'
+      LICENSE_FAIL_ON_BLOCKED:
+        description: 'true = falla el job con licencias bloqueadas; false = solo aviso'
+        required: false
+        type: string
+        default: 'true'
+      LICENSE_REPORT_FILE:
+        description: 'Nombre del reporte JSON'
+        required: false
+        type: string
+        default: 'license-report.json'
+
+permissions:
+  contents: read
+
+jobs:
+  license_compliance:
+    name: License compliance
+    runs-on: ubuntu-latest
+    if: inputs.LICENSE_DISABLED != 'true'
+    env:
+      SERVICES: ${{ inputs.SERVICES }}
+      LICENSE_ALLOWED: ${{ inputs.LICENSE_ALLOWED }}
+      LICENSE_BLOCKED: ${{ inputs.LICENSE_BLOCKED }}
+      LICENSE_FAIL_ON_BLOCKED: ${{ inputs.LICENSE_FAIL_ON_BLOCKED }}
+      LICENSE_REPORT_FILE: ${{ inputs.LICENSE_REPORT_FILE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Recolectar licencias
+        run: |
+          echo "[]" > "${LICENSE_REPORT_FILE}"
+          SCAN_ERRORS=0
+          FAILED_SERVICES=""
+          for SERVICE in ${SERVICES}; do
+            echo "🔍 Analizando servicio: $SERVICE"
+            if [ ! -d "$GITHUB_WORKSPACE/$SERVICE" ]; then
+              echo "⚠️ El directorio $SERVICE no existe. Omitiendo."
+              continue
+            fi
+            cd "$GITHUB_WORKSPACE/$SERVICE"
+            PROJECT_TYPE="unknown"
+            SERVICE_REPORT="license-report-tmp.json"
+            echo "[]" > "${SERVICE_REPORT}"
+
+            if [ -f "package.json" ]; then
+              echo "📦 Detectado proyecto Node.js"
+              PROJECT_TYPE="node"
+              NODE_OK=true
+              npm install -g license-checker || { echo "⚠️ Fallo al instalar license-checker."; NODE_OK=false; }
+              npm install --ignore-scripts --no-audit || { echo "⚠️ Fallo al instalar las dependencias de npm: las licencias quedarían incompletas."; NODE_OK=false; }
+              if [ "$NODE_OK" = "true" ] && license-checker --json --production > raw-licenses.json \
+                 && jq '[to_entries[] | {package: .key, license: (.value.licenses // "Unknown"), repository: (.value.repository // "N/A")}]' raw-licenses.json > "${SERVICE_REPORT}"; then
+                :
+              else
+                echo "❌ No se pudieron obtener las licencias de ${SERVICE} (Node.js)."
+                echo "[]" > "${SERVICE_REPORT}"
+                SCAN_ERRORS=$((SCAN_ERRORS + 1)); FAILED_SERVICES="${FAILED_SERVICES} ${SERVICE}"
+              fi
+            fi
+
+            if [ "$PROJECT_TYPE" = "unknown" ] && { [ -f "requirements.txt" ] || [ -f "pyproject.toml" ] || [ -f "setup.py" ]; }; then
+              echo "🐍 Detectado proyecto Python"
+              PROJECT_TYPE="python"
+              PY_OK=true
+              pip install --quiet pip-licenses || { echo "⚠️ Fallo al instalar pip-licenses."; PY_OK=false; }
+              if [ -f "requirements.txt" ]; then
+                pip install --quiet -r requirements.txt || { echo "⚠️ Fallo al instalar requirements.txt: las licencias quedarían incompletas."; PY_OK=false; }
+              fi
+              if [ "$PY_OK" = "true" ] && pip-licenses --format=json --with-urls > raw-licenses.json \
+                 && jq '[.[] | {package: .Name, license: .License, repository: (.URL // "N/A")}]' raw-licenses.json > "${SERVICE_REPORT}"; then
+                :
+              else
+                echo "❌ No se pudieron obtener las licencias de ${SERVICE} (Python)."
+                echo "[]" > "${SERVICE_REPORT}"
+                SCAN_ERRORS=$((SCAN_ERRORS + 1)); FAILED_SERVICES="${FAILED_SERVICES} ${SERVICE}"
+              fi
+            fi
+
+            if [ "$PROJECT_TYPE" = "unknown" ] && [ -f "go.mod" ]; then
+              echo "🐹 Detectado proyecto Go (best-effort: lista dependencias para revisión manual)"
+              PROJECT_TYPE="go"
+              awk '{print $1}' go.sum 2>/dev/null | sort -u | head -100 | jq -R -s '[split("\n")[] | select(length > 0) | {package: ., license: "Revisar manualmente", repository: ("https://" + .)}]' > "${SERVICE_REPORT}" || echo "[]" > "${SERVICE_REPORT}"
+            fi
+
+            if [ "$PROJECT_TYPE" = "unknown" ] && [ -f "pom.xml" ]; then
+              echo "☕ Detectado proyecto Java (best-effort: lista dependencias para revisión manual)"
+              PROJECT_TYPE="java"
+              grep -A2 '<dependency>' pom.xml | grep -E '<(groupId|artifactId)>' | paste - - | sed -E 's/.*<groupId>(.*)<\/groupId>.*<artifactId>(.*)<\/artifactId>.*/\1:\2/' | jq -R -s '[split("\n")[] | select(length > 0) | {package: ., license: "Revisar manualmente", repository: "https://search.maven.org/artifact/" + .}]' > "${SERVICE_REPORT}" || echo "[]" > "${SERVICE_REPORT}"
+            fi
+
+            jq -s 'add' "$GITHUB_WORKSPACE/${LICENSE_REPORT_FILE}" "${SERVICE_REPORT}" > "$GITHUB_WORKSPACE/${LICENSE_REPORT_FILE}.tmp" \
+              && mv "$GITHUB_WORKSPACE/${LICENSE_REPORT_FILE}.tmp" "$GITHUB_WORKSPACE/${LICENSE_REPORT_FILE}"
+            cd "$GITHUB_WORKSPACE"
+          done
+
+          echo "SCAN_ERRORS=${SCAN_ERRORS}" >> "$GITHUB_ENV"
+          echo "FAILED_SERVICES=${FAILED_SERVICES}" >> "$GITHUB_ENV"
+
+      - name: Evaluar compliance
+        run: |
+          TOTAL=$(jq length "${LICENSE_REPORT_FILE}")
+          ALLOWED_COUNT=0; BLOCKED_COUNT=0; UNKNOWN_COUNT=0; BLOCKED_PACKAGES=""
+
+          jq -r '.[] | "\(.package)|\(.license)"' "${LICENSE_REPORT_FILE}" > .licenses_tmp
+          while IFS='|' read -r PKG_NAME PKG_LICENSE || [ -n "$PKG_NAME" ]; do
+            [ -z "$PKG_NAME" ] && continue
+            IS_BLOCKED=false; IS_ALLOWED=false
+            LIC_LOWER=$(echo "$PKG_LICENSE" | tr '[:upper:]' '[:lower:]')
+            for B in $(echo "$LICENSE_BLOCKED" | tr ',' ' '); do
+              if echo "$LIC_LOWER" | grep -qF "$(echo "$B" | tr '[:upper:]' '[:lower:]')"; then IS_BLOCKED=true; break; fi
+            done
+            if [ "$IS_BLOCKED" = "false" ]; then
+              for A in $(echo "$LICENSE_ALLOWED" | tr ',' ' '); do
+                if echo "$LIC_LOWER" | grep -qF "$(echo "$A" | tr '[:upper:]' '[:lower:]')"; then IS_ALLOWED=true; break; fi
+              done
+            fi
+            if [ "$IS_BLOCKED" = "true" ]; then
+              BLOCKED_COUNT=$((BLOCKED_COUNT + 1)); BLOCKED_PACKAGES="${BLOCKED_PACKAGES}\n  🔴 ${PKG_NAME} → ${PKG_LICENSE}"
+            elif [ "$IS_ALLOWED" = "true" ]; then ALLOWED_COUNT=$((ALLOWED_COUNT + 1))
+            else UNKNOWN_COUNT=$((UNKNOWN_COUNT + 1)); fi
+          done < .licenses_tmp
+          rm -f .licenses_tmp
+
+          {
+            echo "### 📋 License compliance"
+            echo "| Total | ✅ Permitidas | 🔴 Bloqueadas | ❓ Desconocidas |"
+            echo "|---|---|---|---|"
+            echo "| ${TOTAL} | ${ALLOWED_COUNT} | ${BLOCKED_COUNT} | ${UNKNOWN_COUNT} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY" | tail -4
+
+          if [ "$BLOCKED_COUNT" -gt 0 ]; then
+            printf "⚠️  Dependencias con licencias bloqueadas:%b\n" "$BLOCKED_PACKAGES"
+            if [ "${LICENSE_FAIL_ON_BLOCKED}" = "true" ]; then
+              echo "::error::${BLOCKED_COUNT} dependencias con licencias no permitidas (LICENSE_FAIL_ON_BLOCKED=false lo deja en aviso)."
+              FAIL=1
+            else
+              echo "::warning::Licencias bloqueadas detectadas (modo permisivo)."
+            fi
+          fi
+
+          if [ "${SCAN_ERRORS:-0}" -gt 0 ]; then
+            echo "::warning::La auditoría de licencias quedó incompleta en:${FAILED_SERVICES}. No se puede afirmar que las licencias sean compatibles."
+            jq --arg s "${FAILED_SERVICES}" '. + [{package: "(auditoría incompleta)", license: "Unknown", repository: "N/A", scan_incomplete: true, services: $s}]' \
+              "${LICENSE_REPORT_FILE}" > "${LICENSE_REPORT_FILE}.tmp" && mv "${LICENSE_REPORT_FILE}.tmp" "${LICENSE_REPORT_FILE}"
+          fi
+          exit "${FAIL:-0}"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: license-report
+          path: ${{ inputs.LICENSE_REPORT_FILE }}
+          if-no-files-found: ignore
+          retention-days: 7

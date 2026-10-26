@@ -1,0 +1,141 @@
+name: Utilities Changelog
+
+# Genera CHANGELOG.md (o changelog.json) con git-cliff a partir de commits convencionales.
+
+on:
+  workflow_call:
+    inputs:
+      CHANGELOG_DISABLED:
+        description: 'Deshabilitar la generación'
+        required: false
+        type: string
+        default: 'false'
+      CHANGELOG_FORMAT:
+        description: 'markdown | json'
+        required: false
+        type: string
+        default: 'markdown'
+      CHANGELOG_FILE:
+        description: 'Archivo de salida (markdown)'
+        required: false
+        type: string
+        default: 'CHANGELOG.md'
+      CHANGELOG_RANGE:
+        description: 'Rango de commits de git-cliff (vacío = todo el historial)'
+        required: false
+        type: string
+        default: ''
+      CHANGELOG_COMMIT_PUSH:
+        description: 'Commitear el changelog a la rama (requiere permisos de escritura)'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  generate_changelog:
+    name: Generar changelog
+    runs-on: ubuntu-latest
+    if: inputs.CHANGELOG_DISABLED != 'true'
+    env:
+      CHANGELOG_FORMAT: ${{ inputs.CHANGELOG_FORMAT }}
+      CHANGELOG_FILE: ${{ inputs.CHANGELOG_FILE }}
+      CHANGELOG_RANGE: ${{ inputs.CHANGELOG_RANGE }}
+      CHANGELOG_COMMIT_PUSH: ${{ inputs.CHANGELOG_COMMIT_PUSH }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configuración por defecto de git-cliff
+        run: |
+          [ -f cliff.toml ] || [ -f .cliff.toml ] && exit 0
+          echo "ℹ️ No se encontró cliff.toml. Usando configuración por defecto."
+          cat > cliff.toml <<'EOF'
+          [changelog]
+          header = """
+          # Changelog\n
+          Todos los cambios notables de este proyecto serán documentados en este archivo.\n
+          """
+          body = """
+          {% if version %}\
+              ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+          {% else %}\
+              ## [Sin release]
+          {% endif %}\
+          {% for group, commits in commits | group_by(attribute="group") %}
+              ### {{ group | upper_first }}
+              {% for commit in commits %}
+                  - {% if commit.scope %}*({{ commit.scope }})* {% endif %}{{ commit.message | upper_first }}\
+              {% endfor %}
+          {% endfor %}\n
+          """
+          trim = true
+
+          [git]
+          conventional_commits = true
+          filter_unconventional = false
+          split_commits = false
+          commit_parsers = [
+            { message = ".*\\[skip ci\\].*", skip = true },
+            { message = ".*actualizar changelog.*", skip = true },
+            { message = ".*update badges.*", skip = true },
+            { message = "^chore\\(release\\)", skip = true },
+            { message = "^chore\\(deps\\)", skip = true },
+            { message = "^chore\\(bot\\)", skip = true },
+            { message = "^feat", group = "🚀 Nuevas funcionalidades" },
+            { message = "^fix", group = "🐛 Correcciones" },
+            { message = "^doc", group = "📚 Documentación" },
+            { message = "^perf", group = "⚡ Rendimiento" },
+            { message = "^refactor", group = "🔧 Refactoring" },
+            { message = "^style", group = "💄 Estilo" },
+            { message = "^test", group = "🧪 Tests" },
+            { message = "^chore|^ci", group = "⚙️ Mantenimiento" },
+            { body = ".*security", group = "🔒 Seguridad" },
+          ]
+          protect_breaking_commits = false
+          filter_commits = false
+          tag_pattern = "v[0-9].*"
+          sort_commits = "newest"
+          EOF
+
+      - name: git-cliff
+        uses: orhun/git-cliff-action@v4
+        id: cliff
+        with:
+          config: ${{ hashFiles('.cliff.toml') != '' && '.cliff.toml' || 'cliff.toml' }}
+          args: ${{ inputs.CHANGELOG_RANGE }}
+        env:
+          OUTPUT: ${{ inputs.CHANGELOG_FORMAT == 'json' && 'changelog.json' || inputs.CHANGELOG_FILE }}
+          GITHUB_REPO: ${{ github.repository }}
+
+      - name: Verificar salida
+        run: |
+          OUT="${CHANGELOG_FILE}"; [ "$CHANGELOG_FORMAT" = "json" ] && OUT=changelog.json
+          [ -s "$OUT" ] || { echo "::error::git-cliff no generó $OUT"; exit 1; }
+          head -50 "$OUT"
+
+      - name: Commit del changelog
+        if: inputs.CHANGELOG_COMMIT_PUSH && github.event_name != 'pull_request'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # por separado: `git add a b` falla completo si alguno no existe
+          git add "${CHANGELOG_FILE}" 2>/dev/null || true
+          git add changelog.json 2>/dev/null || true
+          if git diff --cached --quiet; then echo "ℹ️ Sin cambios en el changelog"; exit 0; fi
+          git commit -m "chore: actualizar changelog [skip ci]"
+          git push origin "HEAD:${GITHUB_REF_NAME}" && echo "✅ Changelog actualizado." \
+            || echo "::warning::No se pudo hacer push del changelog (permisos o protección de rama)."
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: changelog
+          path: |
+            ${{ inputs.CHANGELOG_FILE }}
+            changelog.json
+          if-no-files-found: ignore
+          retention-days: 7

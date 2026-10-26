@@ -50,6 +50,8 @@ jobs:
   gitops_deploy:
     name: 🚀 GitOps Deploy [${{ inputs.TARGET_ENVIRONMENT || 'production' }}]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     environment:
       name: ${{ inputs.TARGET_ENVIRONMENT || 'production' }}
     steps:
@@ -60,15 +62,17 @@ jobs:
         id: auth
         shell: bash
         run: |
-          if [ -n "${{ secrets.GITOPS_DEPLOY_KEY }}" ]; then
+          if [ -n "${GITOPS_DEPLOY_KEY}" ]; then
             echo "🔑 Configurando SSH con GITOPS_DEPLOY_KEY..."
             mkdir -p ~/.ssh
-            echo "${{ secrets.GITOPS_DEPLOY_KEY }}" | tr -d '\r' > ~/.ssh/id_rsa
+            echo "${GITOPS_DEPLOY_KEY}" | tr -d '\r' > ~/.ssh/id_rsa
             chmod 600 ~/.ssh/id_rsa
             ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null || true
             ssh-keyscan -H gitlab.com >> ~/.ssh/known_hosts 2>/dev/null || true
           fi
 
+        env:
+          GITOPS_DEPLOY_KEY: ${{ secrets.GITOPS_DEPLOY_KEY }}
       - name: 🚀 Sincronizar Manifiestos con Repositorio GitOps
         shell: bash
         env:
@@ -79,6 +83,7 @@ jobs:
           SERVICE_NAME: ${{ inputs.SERVICE_NAME }}
           IMAGE_TAG: ${{ inputs.IMAGE_TAG }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITOPS_DEPLOY_KEY: ${{ secrets.GITOPS_DEPLOY_KEY }}
         run: |
           echo "════════════════════════════════════════════════════════"
           echo "🚀 Sincronizando con Repositorio GitOps de Infraestructura..."
@@ -102,7 +107,7 @@ jobs:
 
           # Resolver URL de clonación
           CLONE_URL="${GITOPS_INFRA_REPO}"
-          if [ -z "${{ secrets.GITOPS_DEPLOY_KEY }}" ]; then
+          if [ -z "${GITOPS_DEPLOY_KEY}" ]; then
             CLEAN_REPO_PATH=$(echo "$GITOPS_INFRA_REPO" | sed -E 's|git@github\.com:||' | sed -E 's|https?://github\.com/||' | sed -E 's|\.git$||')
             CLONE_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${CLEAN_REPO_PATH}.git"
           fi
@@ -190,6 +195,8 @@ jobs:
     name: ⏪ GitOps Auto-Revert (Rollback Clúster)
     if: failure()
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: ⏪ Ejecutar Revert de Seguridad en Repositorio GitOps
         shell: bash

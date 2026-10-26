@@ -1,0 +1,74 @@
+name: Quality Code Quality
+
+# Análisis de calidad de código con Code Climate (engines por lenguaje). Se omite si SonarQube está configurado.
+
+on:
+  workflow_call:
+    inputs:
+      CODE_QUALITY_DISABLED:
+        description: 'Deshabilitar el análisis'
+        required: false
+        type: string
+        default: 'false'
+      CQ_SOURCE_PATH:
+        description: 'Directorio a analizar'
+        required: false
+        type: string
+        default: '.'
+      DETECTED_LANG:
+        description: 'Lenguaje (python, js, ts, go, java*) para generar .codeclimate.yml'
+        required: false
+        type: string
+        default: ''
+      SONAR_HOST_URL:
+        description: 'Si está definido (SonarQube configurado) se omite Code Climate para evitar redundancia'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  code_quality:
+    name: Code Climate
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: inputs.CODE_QUALITY_DISABLED != 'true' && inputs.SONAR_HOST_URL == ''
+    env:
+      CQ_SOURCE_PATH: ${{ inputs.CQ_SOURCE_PATH }}
+      DETECTED_LANG: ${{ inputs.DETECTED_LANG }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generar .codeclimate.yml
+        run: |
+          if [ -f .codeclimate.yml ]; then echo "📂 Usando .codeclimate.yml del repositorio."; exit 0; fi
+          printf 'version: "2"\nplugins:\n' > .codeclimate.yml
+          case "${DETECTED_LANG}" in
+            python)  printf '  sonar-python: { enabled: true }\n  structure: { enabled: true }\n' >> .codeclimate.yml ;;
+            js|ts)   printf '  eslint: { enabled: true }\n  structure: { enabled: true }\n' >> .codeclimate.yml ;;
+            go)      printf '  gofmt: { enabled: true }\n  govet: { enabled: true }\n' >> .codeclimate.yml ;;
+            java*)   printf '  sonar-java: { enabled: true }\n' >> .codeclimate.yml ;;
+            *)       printf '  structure: { enabled: true }\n' >> .codeclimate.yml ;;
+          esac
+          cat .codeclimate.yml
+
+      - name: Analizar con Code Climate
+        run: |
+          SRC="$GITHUB_WORKSPACE/${CQ_SOURCE_PATH}"
+          docker run --rm \
+            --env CODECLIMATE_CODE="$SRC" \
+            --volume "$SRC":/code \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            --volume /tmp/cc:/tmp/cc \
+            codeclimate/codeclimate analyze -f json > code-quality-report.json || true
+          COUNT=$(jq 'length' code-quality-report.json 2>/dev/null || echo 0)
+          echo "### 🔍 Code Quality: ${COUNT} hallazgos" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: code-quality-report
+          path: code-quality-report.json
+          if-no-files-found: ignore

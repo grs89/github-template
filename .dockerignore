@@ -77,7 +77,6 @@ package-lock.json
 yarn.lock
 
 # Testing
-test/
 tests/
 *_test.py
 test_*.py

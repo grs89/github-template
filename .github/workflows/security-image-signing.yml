@@ -1,0 +1,58 @@
+name: Security Image Signing
+
+# Firma una imagen con Cosign (keyless, OIDC de GitHub / Sigstore) y verifica la firma resultante.
+# Se firma por digest (image@sha256:...), nunca por tag mutable.
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: 'Referencia con digest: ghcr.io/org/app@sha256:...'
+        required: true
+        type: string
+      registry:
+        description: 'Registry para autenticar el push de la firma'
+        required: false
+        type: string
+        default: 'ghcr.io'
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: Validar referencia
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          case "$IMAGE" in
+            *@sha256:*) ;;
+            *) echo "::error::Se debe firmar por digest (image@sha256:...), recibido: $IMAGE"; exit 1 ;;
+          esac
+
+      - uses: sigstore/cosign-installer@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Firmar
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: cosign sign --yes "$IMAGE"
+
+      - name: Verificar firma
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          cosign verify "$IMAGE" \
+            --certificate-identity-regexp "^https://github.com/${GITHUB_REPOSITORY}/" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com

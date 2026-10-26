@@ -47,6 +47,8 @@ jobs:
   llm_sast_scan:
     name: 🤖 LLM SAST (Semgrep LLM Rules)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     continue-on-error: true
     if: inputs.LLM_SCAN_DISABLED != true
     steps:
@@ -57,7 +59,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p llm-reports
-          SERVICE_DIR="${{ inputs.SERVICE_PATH || '.' }}"
+          SERVICE_DIR="${IN_SERVICE_PATH}"
 
           # Crear reglas Semgrep inline para OWASP LLM
           cat << 'RULES_EOF' > /tmp/semgrep-llm-rules.yaml
@@ -118,6 +120,8 @@ jobs:
 
           echo "✅ Semgrep LLM SAST finalizado."
 
+        env:
+          IN_SERVICE_PATH: ${{ inputs.SERVICE_PATH || '.' }}
       - name: Subir Reporte SAST LLM
         uses: actions/upload-artifact@v4
         with:
@@ -128,6 +132,8 @@ jobs:
   llm_dependency_audit:
     name: 📦 LLM Supply Chain & Dependency Audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     continue-on-error: true
     if: inputs.LLM_SCAN_DISABLED != true
     steps:
@@ -138,7 +144,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p llm-reports
-          SERVICE_DIR="${{ inputs.SERVICE_PATH || '.' }}"
+          SERVICE_DIR="${IN_SERVICE_PATH}"
           cd "$SERVICE_DIR"
 
           # 1. Auditoría Python (pip-audit)
@@ -156,6 +162,8 @@ jobs:
 
           echo "✅ Auditoría de dependencias LLM finalizada."
 
+        env:
+          IN_SERVICE_PATH: ${{ inputs.SERVICE_PATH || '.' }}
       - name: Subir Reporte SCA LLM
         uses: actions/upload-artifact@v4
         with:
@@ -166,6 +174,8 @@ jobs:
   llm_prompt_injection_scan:
     name: 🎯 LLM Dynamic Red-Teaming (PromptFoo)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     continue-on-error: true
     if: inputs.LLM_SCAN_DISABLED != true && inputs.LLM_ENDPOINT != ''
     steps:
@@ -186,6 +196,9 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || secrets.LLM_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || secrets.LLM_API_KEY }}
           GOOGLE_API_KEY: ${{ secrets.GEMINI_API_KEY || secrets.LLM_API_KEY }}
+          IN_LLM_PROVIDER: ${{ inputs.LLM_PROVIDER }}
+          IN_LLM_MODEL: ${{ inputs.LLM_MODEL }}
+          IN_LLM_ENDPOINT: ${{ inputs.LLM_ENDPOINT }}
         run: |
           mkdir -p llm-reports
           npx --yes promptfoo@latest init --no-interactive || true
@@ -193,9 +206,9 @@ jobs:
           cat << 'PROMPTFOO_EOF' > promptfoo-config.yaml
           description: "OWASP LLM Top 10 Security Assessment"
           providers:
-            - id: "${{ inputs.LLM_PROVIDER }}:${{ inputs.LLM_MODEL }}"
+            - id: "${IN_LLM_PROVIDER}:${IN_LLM_MODEL}"
               config:
-                apiBaseUrl: "${{ inputs.LLM_ENDPOINT }}"
+                apiBaseUrl: "${IN_LLM_ENDPOINT}"
           prompts:
             - "{{user_input}}"
           tests:

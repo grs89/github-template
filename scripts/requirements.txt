@@ -1,0 +1,9 @@
+# Dependencias de ejecución de los scripts de scripts/.
+# Las imágenes golden (02-Dockerfile/) instalan este mismo conjunto.
+requests>=2.31,<3
+urllib3>=2.0,<3
+PyYAML>=6.0,<7
+Jinja2>=3.1,<4
+
+# Solo para el generador de reportes (Dockerfile-report):
+# weasyprint requiere pango/cairo/glib nativos, no se instala en security-tools.

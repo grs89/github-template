@@ -61,9 +61,9 @@ jobs:
       contents: read
     outputs:
       detected_lang: ${{ steps.detect.outputs.detected_lang }}
-      app_version:   ${{ steps.detect.outputs.app_version }}
-      image_tag:     ${{ steps.detect.outputs.image_tag }}
-      repo_lc:       ${{ steps.detect.outputs.repo_lc }}
+      app_version: ${{ steps.detect.outputs.app_version }}
+      image_tag: ${{ steps.detect.outputs.image_tag }}
+      repo_lc: ${{ steps.detect.outputs.repo_lc }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -107,7 +107,7 @@ jobs:
             echo "📄 Versión desde version.yml: ${APP_VERSION}"
           fi
 
-          IMAGE_TAG="${{ github.ref_name }}_${APP_VERSION}"
+          IMAGE_TAG="${GH_REF_NAME}_${APP_VERSION}"
 
           echo ""
           echo "═══════════════════════════════════"
@@ -127,6 +127,8 @@ jobs:
           REPO_LC="${REPO_LC//$'\r'/}"
           echo "repo_lc=${REPO_LC}" >> "$GITHUB_OUTPUT"
 
+        env:
+          GH_REF_NAME: ${{ github.ref_name }}
   lint-and-test:
     name: 🧹 Lint & 🧪 Test
     needs: detect-language

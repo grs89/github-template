@@ -1,0 +1,64 @@
+name: Observability DORA Metrics
+
+# Registra eventos DORA (deployment, deployment_recovery/MTTR, ...) en un colector central.
+# Para MTTR: dispara este workflow con repository_dispatch (type: deployment-recovery) desde el webhook de ArgoCD.
+
+on:
+  workflow_call:
+    inputs:
+      DORA_COLLECTOR_URL:
+        description: 'URL del colector DORA (POST JSON)'
+        required: true
+        type: string
+      DORA_EVENT:
+        description: 'Tipo de evento: deployment | deployment_recovery | deployment_failure'
+        required: false
+        type: string
+        default: 'deployment_recovery'
+      DORA_ENV:
+        description: 'Entorno afectado'
+        required: false
+        type: string
+        default: 'production'
+    secrets:
+      DORA_API_TOKEN:
+        description: 'Bearer token del colector'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  dora_record:
+    name: Registrar evento DORA
+    runs-on: ubuntu-latest
+    env:
+      DORA_COLLECTOR_URL: ${{ inputs.DORA_COLLECTOR_URL }}
+      DORA_EVENT: ${{ inputs.DORA_EVENT }}
+      DORA_ENV: ${{ inputs.DORA_ENV }}
+      DORA_API_TOKEN: ${{ secrets.DORA_API_TOKEN }}
+      REPO_NAME: ${{ github.event.repository.name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enviar evento
+        run: |
+          COMMIT_TIME=$(git log -1 --format=%ct "${GITHUB_SHA}" 2>/dev/null || date +%s)
+          LEAD_TIME_SECONDS=$(( $(date +%s) - COMMIT_TIME ))
+
+          PAYLOAD=$(jq -n \
+            --arg event "$DORA_EVENT" --arg service "$REPO_NAME" --arg env "$DORA_ENV" \
+            --arg commit "$GITHUB_SHA" --arg pipeline "$GITHUB_RUN_ID" --arg author "$GITHUB_ACTOR" \
+            --argjson lead_time "$LEAD_TIME_SECONDS" \
+            '{event_type: $event, service_name: $service, environment: $env, commit_sha: $commit,
+              pipeline_id: $pipeline, author: $author, lead_time_seconds: $lead_time,
+              timestamp: (now | strftime("%Y-%m-%dT%H:%M:%SZ"))}')
+          echo "$PAYLOAD" | jq .
+
+          CURL_AUTH=()
+          [ -n "$DORA_API_TOKEN" ] && CURL_AUTH=(-H "Authorization: Bearer ${DORA_API_TOKEN}")
+          curl -sS --fail-with-body -X POST -H "Content-Type: application/json" "${CURL_AUTH[@]}" \
+            -d "$PAYLOAD" "$DORA_COLLECTOR_URL" \
+            || echo "::warning::No se pudo enviar el evento DORA al colector central."

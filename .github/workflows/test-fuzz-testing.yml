@@ -1,0 +1,82 @@
+name: Test Fuzz Testing
+
+# Fuzzing por ecosistema: Go (go test -fuzz) y Python (Hypothesis). Pensado para ejecuciones programadas (schedule).
+
+on:
+  workflow_call:
+    inputs:
+      SERVICE_PATH:
+        description: 'Directorio del servicio'
+        required: false
+        type: string
+        default: '.'
+      FUZZ_TIME_LIMIT:
+        description: 'Límite de fuzzing por target (ej. 5m)'
+        required: false
+        type: string
+        default: '5m'
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz testing
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.SERVICE_PATH }}
+    env:
+      FUZZ_TIME_LIMIT: ${{ inputs.FUZZ_TIME_LIMIT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detectar ecosistema
+        id: lang
+        run: |
+          if [ -f go.mod ]; then L=go
+          elif [ -f package.json ]; then L=js
+          elif [ -f pyproject.toml ] || [ -f requirements.txt ] || [ -f setup.py ]; then L=python
+          else L=unknown; fi
+          echo "lang=$L" >> "$GITHUB_OUTPUT"
+          echo "🔍 Ecosistema detectado: $L"
+
+      - uses: actions/setup-go@v5
+        if: steps.lang.outputs.lang == 'go'
+        with:
+          go-version-file: ${{ inputs.SERVICE_PATH }}/go.mod
+
+      - name: Fuzzing Go
+        if: steps.lang.outputs.lang == 'go'
+        run: |
+          TARGETS=$(grep -rhoE "func Fuzz[A-Za-z0-9_]+" . 2>/dev/null | awk '{print $2}' | sort -u)
+          if [ -z "$TARGETS" ]; then echo "⏭️ No hay funciones FuzzXXX. Omitiendo."; exit 0; fi
+          for T in $TARGETS; do
+            echo "🎯 Fuzzing $T (límite: $FUZZ_TIME_LIMIT)"
+            go test -v -run '^$' -fuzz="^${T}\$" -fuzztime="$FUZZ_TIME_LIMIT" ./... || { echo "::error::CRASH detectado en fuzz target $T"; exit 1; }
+          done
+
+      - uses: actions/setup-python@v5
+        if: steps.lang.outputs.lang == 'python'
+        with:
+          python-version: '3.12'
+
+      - name: Fuzzing Python (Hypothesis)
+        if: steps.lang.outputs.lang == 'python'
+        run: |
+          pip install --quiet hypothesis pytest || echo "::warning::No se pudo instalar hypothesis/pytest"
+          [ -f requirements.txt ] && pip install --quiet -r requirements.txt || true
+          RC=0
+          python3 -m pytest -v --hypothesis-show-statistics || RC=$?
+          case "$RC" in
+            0) ;;
+            5) echo "⏭️ No hay tests de pytest/Hypothesis que ejecutar." ;;
+            1) echo "::error::Hypothesis encontró casos límite que rompen el código."; exit 1 ;;
+            *) echo "::warning::pytest no pudo ejecutarse (código ${RC}): el fuzzing no se completó." ;;
+          esac
+
+      - name: Ecosistema no soportado
+        if: steps.lang.outputs.lang != 'go' && steps.lang.outputs.lang != 'python'
+        run: echo "⏭️ Fuzzing no soportado por defecto para '${OUT_LANG}'."
+        env:
+          OUT_LANG: ${{ steps.lang.outputs.lang }}

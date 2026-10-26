@@ -1,0 +1,104 @@
+name: Observability Chaos Testing
+
+# Chaos Mesh (PodChaos) sobre el servicio preview mientras se sondea /healthz; falla si no es resiliente.
+# Requiere Chaos Mesh instalado en el clúster y un Service <app>-preview.
+
+on:
+  workflow_call:
+    inputs:
+      CHAOS_ENABLED:
+        description: 'true para ejecutar el experimento'
+        required: false
+        type: string
+        default: 'false'
+      CHAOS_DURATION_SECONDS:
+        description: 'Duración del experimento'
+        required: false
+        type: string
+        default: '60'
+      APP_NAME:
+        description: 'Nombre de la app (vacío = nombre del repo)'
+        required: false
+        type: string
+        default: ''
+      K8S_NAMESPACE:
+        description: 'Namespace del servicio preview'
+        required: false
+        type: string
+        default: 'default'
+      CHAOS_MAX_FAILURES:
+        description: 'Fallos tolerados bajo caos antes de abortar'
+        required: false
+        type: string
+        default: '3'
+      TEMPLATE_PROJECT:
+        description: 'Repo de plantillas con k8s/chaos-mesh-pod.yml'
+        required: false
+        type: string
+        default: 'grs89/github-template'
+      TEMPLATE_REF:
+        description: 'Rama o tag del repo de plantillas'
+        required: false
+        type: string
+        default: 'main'
+    secrets:
+      KUBE_CONFIG:
+        description: 'kubeconfig en base64'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  chaos:
+    name: Chaos experiment
+    runs-on: ubuntu-latest
+    if: inputs.CHAOS_ENABLED == 'true'
+    env:
+      KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+      CHAOS_DURATION_SECONDS: ${{ inputs.CHAOS_DURATION_SECONDS }}
+      CHAOS_MAX_FAILURES: ${{ inputs.CHAOS_MAX_FAILURES }}
+      APP_NAME: ${{ inputs.APP_NAME || github.event.repository.name }}
+      K8S_NAMESPACE: ${{ inputs.K8S_NAMESPACE }}
+      GH_TOKEN: ${{ github.token }}
+      TEMPLATE_PROJECT: ${{ inputs.TEMPLATE_PROJECT }}
+      TEMPLATE_REF: ${{ inputs.TEMPLATE_REF }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: kubeconfig
+        run: |
+          umask 077
+          mkdir -p ~/.kube
+          echo "$KUBE_CONFIG" | base64 -d > ~/.kube/config
+          kubectl cluster-info >/dev/null || { echo "❌ No hay conexión al cluster"; exit 1; }
+
+      - name: Experimento de caos
+        run: |
+          if [ -f k8s/chaos-mesh-pod.yml ]; then cp k8s/chaos-mesh-pod.yml "$RUNNER_TEMP/chaos.yml"
+          else
+            gh api -H "Accept: application/vnd.github.raw" \
+              "repos/${TEMPLATE_PROJECT}/contents/k8s/chaos-mesh-pod.yml?ref=${TEMPLATE_REF}" > "$RUNNER_TEMP/chaos.yml" \
+              || { echo "❌ No se pudo obtener chaos-mesh-pod.yml"; exit 1; }
+          fi
+          export APP_NAME K8S_NAMESPACE
+          envsubst '${APP_NAME} ${K8S_NAMESPACE}' < "$RUNNER_TEMP/chaos.yml" | kubectl apply -f -
+
+          echo "⏳ Smoke tests en paralelo con la inyección de fallas..."
+          END=$((SECONDS + CHAOS_DURATION_SECONDS)); FAILURES=0
+          while [ "$SECONDS" -lt "$END" ]; do
+            CODE=$(kubectl run "chaos-probe-$RANDOM" -n "$K8S_NAMESPACE" --rm -i --restart=Never --quiet \
+              --image=curlimages/curl:8.10.1 -- -s -o /dev/null -w '%{http_code}' --max-time 4 "http://${APP_NAME}-preview:8080/healthz" 2>/dev/null || echo 500)
+            if [ "$CODE" != "200" ]; then
+              FAILURES=$((FAILURES + 1)); echo "  ⚠️ [Caos activo] preview inestable: HTTP ${CODE} (fallos: ${FAILURES})"
+            else
+              echo "  💚 [Caos activo] preview OK"
+            fi
+            [ "$FAILURES" -gt "$CHAOS_MAX_FAILURES" ] && { echo "::error::El microservicio no es resiliente (${FAILURES} fallos)."; exit 1; }
+            sleep 5
+          done
+          echo "✅ Experimento completado: el microservicio sobrevivió a la inyección de caos."
+
+      - name: Limpiar experimento
+        if: always()
+        run: kubectl delete podchaos "${APP_NAME}-pod-chaos" -n "$K8S_NAMESPACE" --ignore-not-found=true

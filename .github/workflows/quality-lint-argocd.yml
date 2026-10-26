@@ -1,0 +1,53 @@
+name: Quality Lint ArgoCD
+
+# Linting y validación de manifiestos Kubernetes / ArgoCD: yamllint + kubeconform.
+
+on:
+  workflow_call:
+    inputs:
+      ARGOCD_MANIFEST_PATH:
+        description: 'Directorio con los manifiestos'
+        required: false
+        type: string
+        default: '.'
+      KUBERNETES_VERSION:
+        description: 'Versión de Kubernetes para validar esquemas'
+        required: false
+        type: string
+        default: '1.30.0'
+
+permissions:
+  contents: read
+
+jobs:
+  yamllint:
+    name: yamllint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: yamllint
+        env:
+          ARGOCD_MANIFEST_PATH: ${{ inputs.ARGOCD_MANIFEST_PATH }}
+        run: |
+          pip install --quiet yamllint
+          yamllint -d "{extends: relaxed, rules: {line-length: disable, document-start: disable, truthy: disable, trailing-spaces: disable, new-line-at-end-of-file: disable}}" "$ARGOCD_MANIFEST_PATH"
+
+  kubeconform:
+    name: kubeconform
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: kubeconform
+        env:
+          ARGOCD_MANIFEST_PATH: ${{ inputs.ARGOCD_MANIFEST_PATH }}
+          K8S_VERSION: ${{ inputs.KUBERNETES_VERSION }}
+        run: |
+          mapfile -t K8S_FILES < <(find "$ARGOCD_MANIFEST_PATH" -type f \( -name '*.yaml' -o -name '*.yml' \) -print0 \
+            | xargs -0 -r grep -l 'apiVersion:' 2>/dev/null | xargs -r -d '\n' grep -l 'kind:')
+          if [ "${#K8S_FILES[@]}" -eq 0 ]; then
+            echo "⏭️ No se encontraron manifiestos de Kubernetes (apiVersion + kind). Omitiendo."
+            exit 0
+          fi
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
+          echo "☸️ Validando ${#K8S_FILES[@]} manifiestos..."
+          ./kubeconform -summary -ignore-missing-schemas -skip Secret -kubernetes-version "$K8S_VERSION" "${K8S_FILES[@]}"

@@ -46,6 +46,13 @@ def resolve_link_to_anchor(url):
 def escape_html(text):
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
+def safe_url(url):
+    """URL apta para un atributo href/src: sin esquemas ejecutables ni comillas que rompan el atributo."""
+    cleaned = url.strip()
+    if re.match(r'^(javascript|vbscript|data):', re.sub(r'[\x00-\x20]', '', cleaned), re.I):
+        return '#'
+    return cleaned.replace('"', '%22').replace('<', '%3C').replace('>', '%3E')
+
 def parse_markdown(md_content):
     html = []
     lines = md_content.split('\n')
@@ -174,13 +181,12 @@ def parse_markdown(md_content):
     for line in html:
         if line.startswith('<tr'):
             if not in_table:
+                # La primera fila de la tabla Markdown es la cabecera: <th> dentro de <thead>; el resto, <tbody>.
                 final_html.append('<div class="overflow-x-auto my-6 border border-themeBorder rounded-xl"><table class="w-full text-left border-collapse"><thead class="bg-themeCodeBg text-xs font-semibold text-themeMuted uppercase tracking-wider">')
+                final_html.append(line.replace('<td', '<th').replace('</td>', '</th>'))
+                final_html.append('</thead><tbody>')
                 in_table = True
-            elif in_table and '</thead>' not in "".join(final_html[-2:]):
-                # Simple table header separation: first row is treated as header
-                # We do a dirty header finish after the first row
-                # (in a real markdown table, separator follows. We just wrap it cleanly)
-                pass
+                continue
         else:
             if in_table:
                 final_html.append('</tbody></table></div>')
@@ -197,12 +203,12 @@ def parse_inline(text):
     text = re.sub(r'`(.*?)`', lambda m: f'<code class="px-1.5 py-0.5 rounded bg-themeCodeBg border border-themeBorder text-themeAccent font-mono text-xs">{escape_html(m.group(1))}</code>', text)
     
     # 2. Markdown Images: ![alt](url) -> <img src="\2" alt="\1" class="inline-block my-1 rounded hover:scale-105 transition-transform max-w-full">
-    text = re.sub(r'!\[(.*?)\]\((.*?)\)', r'<img src="\2" alt="\1" class="inline-block my-1 rounded hover:scale-105 transition-transform max-w-full">', text)
+    text = re.sub(r'!\[(.*?)\]\((.*?)\)', lambda m: f'<img src="{safe_url(m.group(2))}" alt="{m.group(1).replace(chr(34), "&quot;")}" class="inline-block my-1 rounded hover:scale-105 transition-transform max-w-full">', text)
     
     # 3. Links: [text](url) -> convert relative links to anchors or keep absolute
     def link_repl(match):
         label, url = match.groups()
-        target_url = resolve_link_to_anchor(url)
+        target_url = safe_url(resolve_link_to_anchor(url))
         return f'<a href="{target_url}" class="text-themeAccent hover:text-themeAccentHover hover:underline transition-colors font-medium">{label}</a>'
         
     text = re.sub(r'\[(.*?)\]\((.*?)\)', link_repl, text)
@@ -289,8 +295,8 @@ def main():
             
     if not md_files:
         print("⚠️ No se encontraron archivos markdown para compilar. Generando página de bienvenida por defecto...")
-        project_title = os.environ.get('CI_PROJECT_NAME', os.path.basename(os.getcwd())).title()
-        project_url = os.environ.get('CI_PROJECT_URL', '#')
+        project_title = (os.environ.get('CI_PROJECT_NAME') or os.environ.get('GITHUB_REPOSITORY', '').split('/')[-1] or os.path.basename(os.getcwd())).title()
+        project_url = (os.environ.get('CI_PROJECT_URL') or (os.environ.get('GITHUB_SERVER_URL', 'https://github.com') + '/' + os.environ['GITHUB_REPOSITORY'] if os.environ.get('GITHUB_REPOSITORY') else '#'))
         
         fallback_html = f'''<!DOCTYPE html>
 <html lang="es" class="h-full bg-[#07080d] dark">
@@ -393,8 +399,8 @@ def main():
         
     sidebar_html = "\n".join(sidebar_links)
     dot_html = "\n".join(dot_links)
-    project_title = os.environ.get('CI_PROJECT_NAME', os.path.basename(os.getcwd())).title()
-    project_url = os.environ.get('CI_PROJECT_URL', '#')
+    project_title = (os.environ.get('CI_PROJECT_NAME') or os.environ.get('GITHUB_REPOSITORY', '').split('/')[-1] or os.path.basename(os.getcwd())).title()
+    project_url = (os.environ.get('CI_PROJECT_URL') or (os.environ.get('GITHUB_SERVER_URL', 'https://github.com') + '/' + os.environ['GITHUB_REPOSITORY'] if os.environ.get('GITHUB_REPOSITORY') else '#'))
     
     # Concatenar todas las secciones en el cuerpo principal
     body_html_parts = []

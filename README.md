@@ -42,6 +42,8 @@
 - **Continuous Deployment & GitOps:** Despliegue automatizado con auto-revert en caso de fallos de Argo Rollouts.
 - **Limpieza de Container Registry (GHCR):** Purga periódica de imágenes y tags antiguos no protegidos gobernada por `GITHUB_TOKEN`.
 - **Automatización de Releases Idempotente:** Publicación automática de GitHub Releases con notas de versión (`CHANGELOG.md`) y artefactos al detectar tags (`v*`).
+- **Catálogo completo de plantillas (74 workflows reutilizables):** licencias, fuzzing, mutation testing, pentest agéntico (Strix), Policy-as-Code (Kyverno/OPA), Preview Environments por PR, scale up/down GitOps, chaos testing, métricas DORA, trazas OTel del pipeline, Renovate, changelog con git-cliff, notas de release con IA, sincronización de ROADMAP con Milestones y más. Ver [`01-wiki/Workflows-Catalog.md`](01-wiki/Workflows-Catalog.md).
+- **Calidad de las propias plantillas:** `Template CI` ejecuta actionlint + shellcheck y una suite pytest que valida cada workflow (inputs/secrets declarados, permisos mínimos, anti-inyección, acciones con versión fija) y ejecuta el shell real de los steps críticos en un contenedor Ubuntu.
 
 ### Arquitectura Técnica de Alto Nivel 🏗️
 
@@ -112,6 +114,8 @@ El consolidador ejecutivo calcula una puntuación global de salud (**A+** a **F*
 - **Supply Chain Security:** CycloneDX SBOM, SLSA Provenance, and Cosign keyless signatures.
 - **Container Registry Cleanup (GHCR):** Automated purging of stale and unprotected container tags/images via GitHub REST API.
 - **Automated Idempotent Releases:** Automatic GitHub Releases publishing with `CHANGELOG.md` notes upon tag push (`v*`).
+- **Full template catalog (74 reusable workflows):** license compliance, fuzzing, mutation testing, agentic pentest (Strix), Policy-as-Code (Kyverno/OPA), per-PR Preview Environments, GitOps scale up/down, chaos testing, DORA metrics, pipeline OTel traces, Renovate, git-cliff changelog, AI release notes, ROADMAP→Milestones sync and more. See [`01-wiki/Workflows-Catalog.md`](01-wiki/Workflows-Catalog.md).
+- **Template quality gates:** `Template CI` runs actionlint + shellcheck and a pytest suite that statically validates every workflow and executes the real shell of critical steps in an Ubuntu container.
 
 ### Quickstart 🛠️
 
@@ -147,6 +151,7 @@ jobs:
 - **Segurança 360° e IA (OWASP LLM Top 10):** Análise estática e dinâmica para aplicações com LLMs (PromptFoo, Semgrep LLM).
 - **Limpeza do Container Registry (GHCR):** Purga automatizada de imagens obsoletas via API REST do GitHub.
 - **Automação de Releases Idempotente:** Publicação automática de GitHub Releases com notas de versão (`CHANGELOG.md`).
+- **Catálogo completo (74 workflows reutilizáveis):** licenças, fuzzing, mutation testing, pentest agêntico (Strix), Policy-as-Code (Kyverno/OPA), Preview Environments por PR, scale up/down GitOps, chaos testing, métricas DORA, traces OTel, Renovate, changelog, notas de release com IA e mais. Veja [`01-wiki/Workflows-Catalog.md`](01-wiki/Workflows-Catalog.md).
 
 ### Início Rápido 🛠️
 

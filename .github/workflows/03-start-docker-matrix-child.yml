@@ -110,6 +110,8 @@ jobs:
     needs: [build_and_push, gitops_deploy]
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout Código
         uses: actions/checkout@v4

@@ -1,0 +1,67 @@
+name: Security SBOM
+
+# Genera el SBOM (CycloneDX) de una imagen de contenedor o del código fuente, y opcionalmente lo atesta.
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: 'Imagen a inventariar (ej. ghcr.io/org/app:tag). Vacío = escanear el código fuente'
+        required: false
+        type: string
+        default: ''
+      registry:
+        description: 'Registry para autenticar el pull de la imagen'
+        required: false
+        type: string
+        default: 'ghcr.io'
+      attest:
+        description: 'Adjuntar el SBOM como atestación firmada (requiere image con digest, ej. image@sha256:...)'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  sbom:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login al registry
+        if: inputs.image != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Generar SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ inputs.image }}
+          path: ${{ inputs.image == '' && '.' || '' }}
+          format: cyclonedx-json
+          output-file: ./sbom.cyclonedx.json
+          upload-artifact: false
+
+      - name: Atestar SBOM
+        if: inputs.attest && inputs.image != ''
+        uses: actions/attest-sbom@v2
+        with:
+          subject-name: ${{ inputs.image }}
+          sbom-path: ./sbom.cyclonedx.json
+          push-to-registry: true
+
+      - name: Subir SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: ./sbom.cyclonedx.json

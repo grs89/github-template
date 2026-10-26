@@ -1,0 +1,159 @@
+name: Policies Policy-as-Code
+
+# Valida manifiestos Kubernetes con Kyverno y planes de Terraform (JSON) con OPA/Rego.
+
+on:
+  workflow_call:
+    inputs:
+      PAC_DISABLED:
+        description: 'Deshabilitar Policy-as-Code'
+        required: false
+        type: string
+        default: 'false'
+      PAC_ENFORCE_FAIL:
+        description: 'true = una violación falla el job; false = solo aviso (modo auditoría)'
+        required: false
+        type: string
+        default: 'true'
+      PAC_SCAN_PATH:
+        description: 'Directorio a evaluar'
+        required: false
+        type: string
+        default: '.'
+      TEMPLATE_PROJECT:
+        description: 'Repo de plantillas con policies/ (si el repo no trae las suyas)'
+        required: false
+        type: string
+        default: 'grs89/github-template'
+      TEMPLATE_REF:
+        description: 'Rama o tag del repo de plantillas'
+        required: false
+        type: string
+        default: 'main'
+
+permissions:
+  contents: read
+
+jobs:
+  policy_validate_kyverno:
+    name: Kyverno (Kubernetes)
+    runs-on: ubuntu-latest
+    if: inputs.PAC_DISABLED != 'true'
+    env:
+      PAC_SCAN_PATH: ${{ inputs.PAC_SCAN_PATH }}
+      PAC_ENFORCE_FAIL: ${{ inputs.PAC_ENFORCE_FAIL }}
+      GH_TOKEN: ${{ github.token }}
+      TEMPLATE_PROJECT: ${{ inputs.TEMPLATE_PROJECT }}
+      TEMPLATE_REF: ${{ inputs.TEMPLATE_REF }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar Kyverno CLI
+        run: |
+          curl -sSL https://github.com/kyverno/kyverno/releases/download/v1.12.5/kyverno-cli_v1.12.5_linux_x86_64.tar.gz | tar -xz kyverno
+          sudo mv kyverno /usr/local/bin/kyverno
+
+      - name: Obtener políticas
+        run: |
+          mkdir -p "$RUNNER_TEMP/kyverno-policies"
+          if [ -d policies/kyverno ]; then
+            cp -r policies/kyverno/* "$RUNNER_TEMP/kyverno-policies/"
+          else
+            gh api -H "Accept: application/vnd.github.raw" \
+              "repos/${TEMPLATE_PROJECT}/contents/policies/kyverno/k8s-security-policies.yaml?ref=${TEMPLATE_REF}" \
+              > "$RUNNER_TEMP/kyverno-policies/k8s-security-policies.yaml" \
+              || echo "::warning::No se pudo descargar la política de Kyverno desde ${TEMPLATE_PROJECT}."
+          fi
+
+      - name: Validar manifiestos
+        run: |
+          POL="$RUNNER_TEMP/kyverno-policies"
+          if [ ! -s "$POL/k8s-security-policies.yaml" ]; then
+            echo "::warning::No hay políticas de Kyverno que aplicar: el repositorio NO fue validado."
+            exit 0
+          fi
+          mapfile -t FILES < <(find "$PAC_SCAN_PATH" -maxdepth 4 -type f \( -name '*.yaml' -o -name '*.yml' \) \
+            -not -path '*/.git/*' -not -path '*/.github/*' -not -path '*/policies/*' -not -path '*/templates/*')
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "ℹ️ No se detectaron manifiestos YAML en ${PAC_SCAN_PATH}. Omitiendo Kyverno."
+            exit 0
+          fi
+          printf '📄 Manifiestos a evaluar:\n%s\n' "${FILES[@]}"
+
+          RC=0
+          kyverno apply "$POL" --resource "${FILES[@]}" --warn-exit-code 0 2>&1 | tee kyverno-report.txt || RC=${PIPESTATUS[0]}
+          if [ "$RC" -ne 0 ]; then
+            if [ "$PAC_ENFORCE_FAIL" = "true" ]; then
+              echo "::error::Violaciones en políticas de Kubernetes (PAC_ENFORCE_FAIL=false lo deja en aviso)."
+              exit 1
+            fi
+            echo "::warning::Modo auditoría: violaciones de políticas de Kubernetes; el pipeline continúa."
+          else
+            echo "✅ Todos los manifiestos cumplen las políticas de Kyverno."
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kyverno-compliance-report
+          path: kyverno-report.txt
+          if-no-files-found: ignore
+
+  policy_validate_opa_rego:
+    name: OPA/Rego (Terraform)
+    runs-on: ubuntu-latest
+    if: inputs.PAC_DISABLED != 'true'
+    env:
+      PAC_SCAN_PATH: ${{ inputs.PAC_SCAN_PATH }}
+      PAC_ENFORCE_FAIL: ${{ inputs.PAC_ENFORCE_FAIL }}
+      GH_TOKEN: ${{ github.token }}
+      TEMPLATE_PROJECT: ${{ inputs.TEMPLATE_PROJECT }}
+      TEMPLATE_REF: ${{ inputs.TEMPLATE_REF }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar OPA
+        run: |
+          curl -sSL -o opa https://github.com/open-policy-agent/opa/releases/download/v0.68.0/opa_linux_amd64_static
+          chmod +x opa && sudo mv opa /usr/local/bin/opa
+
+      - name: Obtener políticas
+        run: |
+          mkdir -p "$RUNNER_TEMP/opa-policies"
+          if [ -d policies/rego ]; then
+            cp -r policies/rego/* "$RUNNER_TEMP/opa-policies/"
+          else
+            gh api -H "Accept: application/vnd.github.raw" \
+              "repos/${TEMPLATE_PROJECT}/contents/policies/rego/security_rules.rego?ref=${TEMPLATE_REF}" \
+              > "$RUNNER_TEMP/opa-policies/security_rules.rego" \
+              || echo "::warning::No se pudo descargar la política Rego desde ${TEMPLATE_PROJECT}."
+          fi
+
+      - name: Evaluar planes de Terraform
+        run: |
+          POL="$RUNNER_TEMP/opa-policies"
+          if [ ! -s "$POL/security_rules.rego" ]; then
+            echo "::warning::No hay reglas Rego que evaluar: el repositorio NO fue validado."
+            exit 0
+          fi
+          opa check "$POL"
+          mapfile -t PLANS < <(find "$PAC_SCAN_PATH" -maxdepth 3 -type f -name '*tfplan*.json')
+          if [ "${#PLANS[@]}" -eq 0 ]; then
+            echo "ℹ️ No se detectó tfplan.json en ${PAC_SCAN_PATH}. Políticas Rego verificadas."
+            exit 0
+          fi
+          DENIED=0; ERRORS=0
+          for f in "${PLANS[@]}"; do
+            RESULT=$(opa eval --data "$POL" --input "$f" --format raw "data.devsecops.security.allow") || {
+              echo "::warning::opa eval falló para $f"; ERRORS=$((ERRORS + 1)); continue; }
+            if [ "$RESULT" != "true" ]; then echo "❌ $f incumple las políticas (allow=${RESULT})"; DENIED=$((DENIED + 1))
+            else echo "✅ $f cumple las políticas"; fi
+          done
+          if [ "$DENIED" -gt 0 ]; then
+            if [ "$PAC_ENFORCE_FAIL" = "true" ]; then
+              echo "::error::${DENIED} plan(es) incumplen las políticas (PAC_ENFORCE_FAIL=false lo deja en aviso)."
+              exit 1
+            fi
+            echo "::warning::Modo auditoría: ${DENIED} plan(es) incumplen las políticas."
+          fi
+          [ "$ERRORS" -eq 0 ] || echo "::warning::${ERRORS} plan(es) no pudieron evaluarse."

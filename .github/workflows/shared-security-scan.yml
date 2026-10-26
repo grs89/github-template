@@ -7,11 +7,14 @@ on:
         required: true
         type: string
       IMAGE_TAG:
-        required: true
+        description: 'Tag de la imagen ya publicada (vacío = se omiten los escaneos de imagen y DAST)'
+        required: false
         type: string
+        default: ''
       REPO_LC:
-        required: true
+        required: false
         type: string
+        default: ''
       REGISTRY:
         required: false
         type: string
@@ -51,7 +54,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Trivy filesystem scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: 'fs'
           scan-ref: '${{ inputs.CONTEXT_DIR }}'
@@ -61,7 +64,7 @@ jobs:
           exit-code: '0'
 
       - name: Run Trivy filesystem scan (summary)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: 'fs'
           scan-ref: '${{ inputs.CONTEXT_DIR }}'
@@ -95,6 +98,7 @@ jobs:
 
   trivy-image-scan:
     name: 🔎 Trivy Image Scan
+    if: inputs.IMAGE_TAG != ''
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:
@@ -107,22 +111,25 @@ jobs:
           REPO_SUFFIX="${GITHUB_REPOSITORY##*/}"
           REPO_SUFFIX="${REPO_SUFFIX,,}"
           REPO="${GITHUB_REPOSITORY,,}"
-          
-          REG_USER="${{ secrets.REGISTRY_USER }}"
+
+          REG_USER="${SECRET_REGISTRY_USER}"
           if [ -n "$REG_USER" ]; then
              CLEAN_USER=$(echo "${REG_USER,,}" | tr -d ' *')
              if [ -n "$CLEAN_USER" ]; then
                REPO="${CLEAN_USER}/${REPO_SUFFIX}"
              fi
           fi
-          
+
           REPO="${REPO// /}"
-          INPUT_REPO="${{ inputs.REPO_LC }}"
+          INPUT_REPO="${IN_REPO_LC}"
           if [ -n "$INPUT_REPO" ]; then
             REPO="$INPUT_REPO"
           fi
           echo "repo_lc=${REPO}" >> "$GITHUB_OUTPUT"
 
+        env:
+          IN_REPO_LC: ${{ inputs.REPO_LC }}
+          SECRET_REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
       - name: Log in to Registry
         uses: docker/login-action@v3
         with:
@@ -131,7 +138,7 @@ jobs:
           password: ${{ secrets.REGISTRY_PASSWORD || secrets.GITHUB_TOKEN }}
 
       - name: Run Trivy image scan (SARIF)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: 'image'
           image-ref: '${{ inputs.REGISTRY }}/${{ steps.prep.outputs.repo_lc }}:${{ inputs.IMAGE_TAG }}'
@@ -141,7 +148,7 @@ jobs:
           exit-code: '0'
 
       - name: Run Trivy image scan (table)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: 'image'
           image-ref: '${{ inputs.REGISTRY }}/${{ steps.prep.outputs.repo_lc }}:${{ inputs.IMAGE_TAG }}'
@@ -174,6 +181,7 @@ jobs:
 
   trivy-dockerhub-scan:
     name: 🔎 Trivy Docker Hub Image Scan
+    if: inputs.IMAGE_TAG != ''
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:
@@ -191,7 +199,7 @@ jobs:
           REPO="${GITHUB_REPOSITORY##*/}"
           REPO="${REPO,,}"
           REPO="${REPO// /}"
-          
+
           # 2. Use DOCKER_REPO if provided
           if [ -n "$DOCKER_REPO" ]; then
             CLEAN_REPO=$(echo "${DOCKER_REPO,,}" | tr -d ' *')
@@ -199,7 +207,7 @@ jobs:
               REPO="$CLEAN_REPO"
             fi
           fi
-          
+
           # 3. Default user to DOCKER_USER or GITHUB_REPOSITORY owner
           USER="${DOCKER_USER}"
           if [ -z "$USER" ]; then
@@ -207,7 +215,7 @@ jobs:
             USER="${USER,,}"
             USER="${USER// /}"
           fi
-          
+
           DOCKER_IMAGE="${USER}/${REPO}"
           D_LC="${DOCKER_IMAGE,,}"
           echo "docker_image_lc=${D_LC}" >> "$GITHUB_OUTPUT"
@@ -219,7 +227,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Run Trivy image scan (SARIF)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: 'image'
           image-ref: '${{ steps.prep.outputs.docker_image_lc }}:${{ inputs.IMAGE_TAG }}'
@@ -229,7 +237,7 @@ jobs:
           exit-code: '0'
 
       - name: Run Trivy image scan (table)
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: 'image'
           image-ref: '${{ steps.prep.outputs.docker_image_lc }}:${{ inputs.IMAGE_TAG }}'
@@ -263,7 +271,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Checkov
-        uses: bridgecrewio/checkov-action@master
+        uses: bridgecrewio/checkov-action@v12
         with:
           directory: ${{ inputs.CONTEXT_DIR }}
           framework: all
@@ -281,6 +289,7 @@ jobs:
 
   dast-scan:
     name: 🌐 DAST Scan (OWASP ZAP)
+    if: inputs.IMAGE_TAG != ''
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:
@@ -312,22 +321,25 @@ jobs:
           REPO_SUFFIX="${GITHUB_REPOSITORY##*/}"
           REPO_SUFFIX="${REPO_SUFFIX,,}"
           REPO="${GITHUB_REPOSITORY,,}"
-          
-          REG_USER="${{ secrets.REGISTRY_USER }}"
+
+          REG_USER="${SECRET_REGISTRY_USER}"
           if [ -n "$REG_USER" ]; then
              CLEAN_USER=$(echo "${REG_USER,,}" | tr -d ' *')
              if [ -n "$CLEAN_USER" ]; then
                REPO="${CLEAN_USER}/${REPO_SUFFIX}"
              fi
           fi
-          
+
           REPO="${REPO// /}"
-          INPUT_REPO="${{ inputs.REPO_LC }}"
+          INPUT_REPO="${IN_REPO_LC}"
           if [ -n "$INPUT_REPO" ]; then
             REPO="$INPUT_REPO"
           fi
           echo "repo_lc=${REPO}" >> "$GITHUB_OUTPUT"
 
+        env:
+          IN_REPO_LC: ${{ inputs.REPO_LC }}
+          SECRET_REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
       - name: Log in to Registry
         if: ${{ steps.check-url.outputs.skip != 'true' }}
         uses: docker/login-action@v3
@@ -340,24 +352,24 @@ jobs:
         if: ${{ steps.check-url.outputs.skip != 'true' }}
         id: run-app
         run: |
-          IMAGE_REF="${{ inputs.REGISTRY }}/${{ steps.prep.outputs.repo_lc }}:${{ inputs.IMAGE_TAG }}"
+          IMAGE_REF="${IN_REGISTRY}/${OUT_REPO_LC}:${IN_IMAGE_TAG}"
           echo "🚀 Desplegando contenedor efímero: ${IMAGE_REF}"
-          
+
           docker rm -f ephemeral-app 2>/dev/null || true
           docker run -d --name ephemeral-app -P "${IMAGE_REF}"
-          
+
           MAPPED_PORT=$(docker port ephemeral-app | head -n 1 | awk -F: '{print $2}')
-          
+
           if [ -z "$MAPPED_PORT" ]; then
             echo "⚠️ No se detectó puerto expuesto. Mapeando 8080:8080 por defecto..."
             docker rm -f ephemeral-app 2>/dev/null || true
             docker run -d --name ephemeral-app -p 8080:8080 "${IMAGE_REF}"
             MAPPED_PORT="8080"
           fi
-          
+
           echo "MAPPED_PORT=${MAPPED_PORT}" >> "$GITHUB_ENV"
           echo "✅ Contenedor corriendo en el puerto del host: ${MAPPED_PORT}"
-          
+
           echo "⏳ Esperando respuesta HTTP del contenedor..."
           for i in {1..30}; do
             if curl -s -f "http://localhost:${MAPPED_PORT}" > /dev/null; then
@@ -368,6 +380,10 @@ jobs:
             sleep 1
           done
 
+        env:
+          IN_REGISTRY: ${{ inputs.REGISTRY }}
+          IN_IMAGE_TAG: ${{ inputs.IMAGE_TAG }}
+          OUT_REPO_LC: ${{ steps.prep.outputs.repo_lc }}
       - name: Run OWASP ZAP Baseline Scan
         if: ${{ steps.check-url.outputs.skip != 'true' }}
         run: |
@@ -375,7 +391,7 @@ jobs:
           docker run --rm --network="host" -v $(pwd):/zap/wrk/:rw -t zaproxy/zap-stable zap-baseline.py \
             -t "http://localhost:${MAPPED_PORT}" \
             -J zap-report.json || true
-          
+
           echo "📂 Reportes generados en el espacio de trabajo:"
           ls -lh zap-report.json 2>/dev/null || echo "❌ No se encontró zap-report.json"
 

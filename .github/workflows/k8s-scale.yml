@@ -1,0 +1,91 @@
+name: K8S Scale (GitOps)
+
+# Apaga (replicas: 1 -> 0) o enciende (replicas: 0 -> 1) todos los servicios de un directorio del repo de
+# infraestructura GitOps. Se publica un resumen (release_info.yml) usable por utilities-notifications.
+
+on:
+  workflow_call:
+    inputs:
+      ACTION:
+        description: 'down (1 -> 0) | up (0 -> 1)'
+        required: true
+        type: string
+      INFRA_REPO:
+        description: 'Repo de infraestructura (owner/repo)'
+        required: true
+        type: string
+      TARGET_PATH:
+        description: 'Directorio dentro del repo de infraestructura (ej. idp/k8s/DEV)'
+        required: true
+        type: string
+      INFRA_BRANCH:
+        description: 'Rama del repo de infraestructura'
+        required: false
+        type: string
+        default: 'main'
+    secrets:
+      INFRA_REPO_TOKEN:
+        description: 'PAT/fine-grained token con contents:write sobre el repo de infraestructura'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  scale:
+    name: Scale ${{ inputs.ACTION }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.ACTION == 'down' && 'scale-down' || 'scale-up' }}
+    env:
+      ACTION: ${{ inputs.ACTION }}
+      TARGET_PATH: ${{ inputs.TARGET_PATH }}
+      INFRA_BRANCH: ${{ inputs.INFRA_BRANCH }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.INFRA_REPO }}
+          ref: ${{ inputs.INFRA_BRANCH }}
+          token: ${{ secrets.INFRA_REPO_TOKEN }}
+          path: infra_repo
+
+      - name: Escalar
+        working-directory: infra_repo
+        run: |
+          case "$ACTION" in
+            down) FROM=1; TO=0; LABEL="Apagado (0)" ;;
+            up)   FROM=0; TO=1; LABEL="Encendido (1)" ;;
+            *) echo "::error::ACTION debe ser up o down"; exit 1 ;;
+          esac
+          [ -d "$TARGET_PATH" ] || { echo "::error::No existe $TARGET_PATH en el repo de infraestructura"; exit 1; }
+
+          SUMMARY="$GITHUB_WORKSPACE/release_info.yml"
+          printf 'last_update: "%s"\nenvironment: "%s"\nmicroservicios:\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$TARGET_PATH" > "$SUMMARY"
+          CHANGED=0
+          while IFS= read -r -d '' FILE; do
+            if grep -q "replicas: ${FROM}" "$FILE"; then
+              SVC=$(basename "$FILE"); SVC=${SVC%.yaml}; SVC=${SVC%.yml}
+              echo "⚙️ replicas ${FROM} → ${TO}: $FILE"
+              sed -i "s/replicas: ${FROM}/replicas: ${TO}/g" "$FILE"
+              printf '  %s: "%s"\n' "$SVC" "$LABEL" >> "$SUMMARY"
+              CHANGED=$((CHANGED + 1))
+            fi
+          done < <(find "$TARGET_PATH" -type f \( -name '*.yaml' -o -name '*.yml' \) -print0)
+
+          if [ "$CHANGED" -gt 0 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "Auto-scale ${ACTION}: ${CHANGED} servicios (${TARGET_PATH})"
+            git push origin "HEAD:${INFRA_BRANCH}"
+            echo "✅ ${CHANGED} archivos actualizados."
+          else
+            echo "ℹ️ No se encontraron servicios con 'replicas: ${FROM}'."
+            rm -f "$SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-info-scale-${{ inputs.ACTION }}
+          path: release_info.yml
+          if-no-files-found: ignore
+          retention-days: 1

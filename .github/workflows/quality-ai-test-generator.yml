@@ -1,0 +1,108 @@
+name: Quality AI Test Generator
+
+# Genera suites de pruebas unitarias con un agente LLM (Strands) analizando el diff del Pull Request.
+
+on:
+  workflow_call:
+    inputs:
+      AI_TEST_GENERATOR_DISABLED:
+        description: 'true para desactivar'
+        required: false
+        type: string
+        default: 'false'
+      AI_PROVIDER:
+        description: 'ollama, gemini, claude, openai, lm-studio'
+        required: true
+        type: string
+      AI_MODEL:
+        description: 'Modelo del proveedor'
+        required: true
+        type: string
+      AI_API_URL:
+        description: 'Endpoint (ollama / lm-studio)'
+        required: false
+        type: string
+        default: ''
+      AI_MAX_TURNS:
+        description: 'Máximo de turnos del agente'
+        required: false
+        type: string
+        default: '20'
+      AI_MAX_TOKENS:
+        description: 'Máximo de tokens por respuesta'
+        required: false
+        type: string
+        default: '4096'
+      SERVICE_PATH:
+        description: 'Directorio del servicio'
+        required: false
+        type: string
+        default: '.'
+      SERVICE_LANG:
+        description: 'Lenguaje del servicio (python, js, go, java, ...)'
+        required: false
+        type: string
+        default: 'unknown'
+      TEMPLATE_PROJECT:
+        description: 'Repo de plantillas con scripts/ai_test_generator.py'
+        required: false
+        type: string
+        default: 'grs89/github-template'
+      TEMPLATE_REF:
+        description: 'Rama o tag del repo de plantillas'
+        required: false
+        type: string
+        default: 'main'
+    secrets:
+      AI_TOKEN:
+        description: 'API key del proveedor externo'
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  ai_unit_test_generation:
+    name: Generación de tests con IA
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: inputs.AI_TEST_GENERATOR_DISABLED != 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generar tests
+        env:
+          AI_PROVIDER: ${{ inputs.AI_PROVIDER }}
+          AI_MODEL: ${{ inputs.AI_MODEL }}
+          AI_API_URL: ${{ inputs.AI_API_URL }}
+          AI_MAX_TURNS: ${{ inputs.AI_MAX_TURNS }}
+          AI_MAX_TOKENS: ${{ inputs.AI_MAX_TOKENS }}
+          AI_TOKEN: ${{ secrets.AI_TOKEN }}
+          SERVICE_PATH: ${{ inputs.SERVICE_PATH }}
+          SERVICE_LANG: ${{ inputs.SERVICE_LANG }}
+          GH_TOKEN: ${{ github.token }}
+          TEMPLATE_PROJECT: ${{ inputs.TEMPLATE_PROJECT }}
+          TEMPLATE_REF: ${{ inputs.TEMPLATE_REF }}
+        run: |
+          if [ -f scripts/ai_test_generator.py ]; then cp scripts/ai_test_generator.py "$RUNNER_TEMP/ai_test_generator.py"
+          else
+            gh api -H "Accept: application/vnd.github.raw" \
+              "repos/${TEMPLATE_PROJECT}/contents/scripts/ai_test_generator.py?ref=${TEMPLATE_REF}" > "$RUNNER_TEMP/ai_test_generator.py" \
+              || { echo "❌ No se pudo obtener ai_test_generator.py"; exit 1; }
+          fi
+          pip install --quiet --no-cache-dir "strands-agents[ollama,openai,gemini,anthropic]"
+          python3 "$RUNNER_TEMP/ai_test_generator.py"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ai-generated-tests-${{ github.run_id }}
+          path: '**/generated-tests/**'
+          if-no-files-found: ignore
+          retention-days: 7

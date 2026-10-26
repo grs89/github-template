@@ -7,9 +7,10 @@ import urllib.request
 
 def main():
     pushgateway_url = os.getenv("PUSHGATEWAY_URL", "http://pushgateway.monitoring.svc.cluster.local:9091")
-    service_name = os.getenv("CI_PROJECT_NAME", "unknown-service")
+    service_name = os.getenv("CI_PROJECT_NAME") or os.getenv("GITHUB_REPOSITORY", "unknown-service").split("/")[-1]
+    prefix = os.getenv("METRICS_PREFIX", "github")
     env_name = os.getenv("DORA_ENV", "production")
-    commit_sha = os.getenv("CI_COMMIT_SHA", "none")
+    commit_sha = os.getenv("CI_COMMIT_SHA") or os.getenv("GITHUB_SHA", "none")
     
     # 1. Mapear Score de Letra a Porcentaje Numérico para Grafana
     score_map = {"A+": 100, "A": 95, "B": 85, "C": 70, "D": 50, "F": 20}
@@ -28,26 +29,26 @@ def main():
     
     # 2. Generar el payload Prometheus Text Format
     metrics = [
-        f'# HELP gitlab_security_health_percent Porcentaje de salud de seguridad del microservicio',
-        f'# TYPE gitlab_security_health_percent gauge',
-        f'gitlab_security_health_percent{{service="{service_name}",env="{env_name}",commit="{commit_sha}"}} {score_numeric}',
+        f'# HELP {prefix}_security_health_percent Porcentaje de salud de seguridad del microservicio',
+        f'# TYPE {prefix}_security_health_percent gauge',
+        f'{prefix}_security_health_percent{{service="{service_name}",env="{env_name}",commit="{commit_sha}"}} {score_numeric}',
         
-        f'# HELP gitlab_security_penalty_points Puntos de penalización acumulados',
-        f'# TYPE gitlab_security_penalty_points gauge',
-        f'gitlab_security_penalty_points{{service="{service_name}",env="{env_name}"}} {score_penalty}',
+        f'# HELP {prefix}_security_penalty_points Puntos de penalización acumulados',
+        f'# TYPE {prefix}_security_penalty_points gauge',
+        f'{prefix}_security_penalty_points{{service="{service_name}",env="{env_name}"}} {score_penalty}',
         
-        f'# HELP gitlab_security_vulnerabilities_total Total de vulnerabilidades activas por severidad',
-        f'# TYPE gitlab_security_vulnerabilities_total gauge',
-        f'gitlab_security_vulnerabilities_total{{service="{service_name}",severity="critical"}} {vuln_critical}',
-        f'gitlab_security_vulnerabilities_total{{service="{service_name}",severity="high"}} {vuln_high}',
-        f'gitlab_security_vulnerabilities_total{{service="{service_name}",severity="medium"}} {vuln_medium}',
-        f'gitlab_security_vulnerabilities_total{{service="{service_name}",severity="low"}} {vuln_low}',
+        f'# HELP {prefix}_security_vulnerabilities_total Total de vulnerabilidades activas por severidad',
+        f'# TYPE {prefix}_security_vulnerabilities_total gauge',
+        f'{prefix}_security_vulnerabilities_total{{service="{service_name}",severity="critical"}} {vuln_critical}',
+        f'{prefix}_security_vulnerabilities_total{{service="{service_name}",severity="high"}} {vuln_high}',
+        f'{prefix}_security_vulnerabilities_total{{service="{service_name}",severity="medium"}} {vuln_medium}',
+        f'{prefix}_security_vulnerabilities_total{{service="{service_name}",severity="low"}} {vuln_low}',
     ]
     
     payload = "\n".join(metrics) + "\n"
     
     # 3. Enviar vía HTTP POST/PUT a la Pushgateway
-    dest_url = f"{pushgateway_url}/metrics/job/gitlab-ci/service/{service_name}"
+    dest_url = f"{pushgateway_url}/metrics/job/github-actions/service/{service_name}"
     print(f"📤 Exportando telemetría a Pushgateway: {dest_url}")
     
     try:

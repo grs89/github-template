@@ -35,3 +35,6 @@ A continuación, encontrarás el detalle técnico dividido en módulos:
 
 ---
 *Documentación construida siguiendo el **Unified Project Documentation Standard**.*
+
+9. **[📚 Catálogo de Workflows (`Workflows-Catalog.md`)](Workflows-Catalog.md)**
+   Los 74 workflows reutilizables con todos sus inputs, secretos y la equivalencia con las plantillas GitLab.

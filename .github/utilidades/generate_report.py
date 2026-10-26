@@ -125,6 +125,18 @@ def normalize_license_report(data):
     blocked_keywords = ["GPL", "AGPL", "LGPL", "SSPL", "EUPL"]
     
     for entry in data:
+        if entry.get('scan_incomplete'):
+            findings.append({
+                'name': 'Auditoría de licencias incompleta',
+                'severity': 'MEDIUM',
+                'description': f"No se pudieron obtener las licencias de:{entry.get('services', '')}. El resultado no es fiable.",
+                'file': 'N/A',
+                'line': 'N/A',
+                'cve': 'LICENSE-CHECK',
+                'identifier': 'INCOMPLETE',
+                'report_type': 'License Compliance'
+            })
+            continue
         pkg_name = entry.get('package', 'N/A')
         license_name = entry.get('license', 'Unknown')
         
@@ -154,6 +166,18 @@ def normalize_dependency_update_report(data):
     findings = []
     
     for entry in data:
+        if entry.get('scan_incomplete'):
+            findings.append({
+                'name': 'Auditoría de dependencias incompleta',
+                'severity': 'MEDIUM',
+                'description': f"No se pudieron auditar las vulnerabilidades de:{entry.get('services', '')}. El resultado no es fiable.",
+                'file': entry.get('type', 'N/A'),
+                'line': 'N/A',
+                'cve': 'DEP-UPDATE',
+                'identifier': 'INCOMPLETE',
+                'report_type': 'Dependency Update Check'
+            })
+            continue
         pkg_name = entry.get('package', 'N/A')
         current = entry.get('current', 'N/A')
         latest = entry.get('latest', 'N/A')
@@ -298,7 +322,8 @@ def normalize_zap_report(data):
         alerts = site.get('alerts', [])
         
         for alert in alerts:
-            risk_desc = alert.get('riskdesc', 'UNKNOWN').upper()
+            # riskdesc es 'Riesgo (Confianza)', p. ej. 'Low (High)': la severidad es solo lo anterior al paréntesis
+            risk_desc = alert.get('riskdesc', 'UNKNOWN').split('(')[0].strip().upper()
             severity = 'UNKNOWN'
             if 'HIGH' in risk_desc: severity = 'HIGH'
             elif 'MEDIUM' in risk_desc: severity = 'MEDIUM'
@@ -416,6 +441,20 @@ def normalize_llm_dependency_report(data):
             'report_type': 'LLM Security (Dependencias)'
         }
         findings.append(finding)
+
+    # Una auditoría que no se completó no es un "limpio": se avisa en vez de contarla como sin hallazgos
+    if data.get('scan_incomplete'):
+        findings.append({
+            'name': 'Auditoría de dependencias LLM incompleta',
+            'severity': 'MEDIUM',
+            'description': data.get('message', 'La auditoría no se completó; el resultado no es fiable.'),
+            'file': 'N/A',
+            'line': 'N/A',
+            'cve': 'N/A',
+            'identifier': 'INCOMPLETE',
+            'report_type': 'LLM Security (Dependencias)'
+        })
+        return findings
 
     # Si no hay vulnerabilidades, reportar estado limpio
     if not findings and data.get('total_llm_vulns', -1) == 0:
